@@ -104,6 +104,7 @@ end
 Core.FOCUS_ROW_COUNT = 1
 
 Core.FOCUS_ICON, Core.FOCUS_ICON_GAP = 40, -4
+Core.FOCUS_HANDLE = 18 -- px high
 
 Core.FOCUS_TIME_SIZE = 16
 

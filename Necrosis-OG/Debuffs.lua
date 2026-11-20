@@ -287,9 +287,9 @@ local function CreateList(key, title, width, height, guarded)
     frame:SetScript("OnDragStop", list.stopDrag)
     frame.shade = frame:CreateTexture(nil, "BACKGROUND")
     frame.shade:SetAllPoints()
-    frame.shade:SetColorTexture(0.3, 0.1, 0.4, 0.6)
-    frame.title = frame:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall"))
-    frame.title:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    frame.shade:SetColorTexture(0.45, 0.15, 0.55, 0.35)
+    frame.title = frame:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
+    frame.title:SetPoint("BOTTOM", frame, "TOP", 0, 2)
     frame.title:SetText(title)
     list.frame = frame
     lists[key] = list
@@ -426,8 +426,9 @@ local function UpdateFocus()
     end
     local placing = ns.placing
     list.frame.shade:SetShown(placing)
-    list.frame.title:SetShown(placing)
     list.frame:EnableMouse(placing and not ns.db.locked)
+    list.handle:SetShown(placing)
+    list.handle:EnableMouse(placing and not ns.db.locked)
     list.frame:SetShown(placing or On("focus"))
 end
 
@@ -1173,6 +1174,20 @@ local function CreateFocusList()
     RegisterStateDriver(header, "focus", FOCUS_STATE)
     list.driver = FOCUS_STATE
     list.header = header
+    -- strip above icons, drag it to move the list
+    local handle = CreateFrame("Frame", nil, list.frame)
+    handle:SetHeight(Core.FOCUS_HANDLE)
+    handle:SetPoint("BOTTOMLEFT", list.frame, "TOPLEFT", 0, 2)
+    handle:SetPoint("BOTTOMRIGHT", list.frame, "TOPRIGHT", 0, 2)
+    handle:RegisterForDrag("LeftButton")
+    handle:SetScript("OnDragStart", list.startDrag)
+    handle:SetScript("OnDragStop", list.stopDrag)
+    handle.title = handle:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
+    handle.title:SetPoint("BOTTOM", list.frame, "TOP", 0, 2)
+    handle.title:SetText(Text.TIMER_LIST_FOCUS)
+    handle:Hide()
+    list.handle = handle
+    list.frame.title:Hide()
     list.items = {}
     for _, def in ipairs(Core.FOCUS_ICONS) do list.items[#list.items + 1] = NewFocusIcon(header, def) end
     return list

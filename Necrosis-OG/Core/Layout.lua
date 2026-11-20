@@ -221,6 +221,7 @@ function Core.DragSource(place, from, to)
 end
 
 Core.DRAG_EASE = 22
+Core.DRAG_LABEL_SIZE = 12 -- px, name above a drag box
 
 function Core.EaseToward(current, goal, dt, speed)
     if not isNumber(current) or not isNumber(goal) then return goal end
