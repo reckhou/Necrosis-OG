@@ -249,9 +249,10 @@ function Core.EnchantSpan(left, now)
     return now - (length - left), length, now + left
 end
 
--- "29m" for minutes, "45" for seconds
+-- show "1h", "29m" or "45"
 function Core.CooldownText(remaining)
     if not isNumber(remaining) or remaining <= 0 then return "" end
+    if remaining >= 3600 then return math.floor(remaining / 3600) .. "h" end
     if remaining >= 60 then return math.floor(remaining / 60) .. "m" end
     return tostring(math.ceil(remaining))
 end
@@ -259,6 +260,7 @@ end
 Core.COOLDOWN_TEXT_RULES = {
     { threshold = 0, step = 1, rounding = "Up", format = "%d" },
     { threshold = 60, format = "%dm", components = { { div = 60, step = 1, rounding = "Down" } } },
+    { threshold = 3600, format = "%dh", components = { { div = 3600, step = 1, rounding = "Down" } } },
 }
 
 Core.COOLDOWN_RED_WINDOW = 120

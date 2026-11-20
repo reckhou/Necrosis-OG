@@ -1,9 +1,9 @@
 ## Interface: 16001
-## Title: Necrosis OG
+## Title: |cffff00ffN|cffff28ffe|cffff50ffc|cffff75ffr|cffff99ffo|cffffafffs|cffffc4ffi|cffffe2ffs |cffffffffO|cffffe2ffG|r
 ## Notes: One classic sphere. The essential Warlock tool.
 ## Category: Class
 ## IconTexture: Interface\AddOns\Necrosis-OG\Media\UI\AddonIcon
-## Version: 1.0.1
+## Version: 1.0.2
 ## X-License: GPL-2.0-or-later
 ## X-Website: https://github.com/reckhou/Necrosis-OG
 ## SavedVariablesPerCharacter: NecrosisOGDB

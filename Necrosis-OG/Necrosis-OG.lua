@@ -101,6 +101,11 @@ end
 
 local IsSecret, Plain, SpellName = ns.Game.IsSecret, ns.Game.Plain, ns.Game.SpellName
 
+-- check spell in current pet book
+function ns.PetKnows(spellID)
+    return Plain(C_SpellBook.IsSpellKnown, spellID, ns.PetBank()) == true
+end
+
 -- read control spell ids from pet spellbook
 function ns.LearnPetSpells()
     local book = C_SpellBook

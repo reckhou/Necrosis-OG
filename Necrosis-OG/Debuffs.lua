@@ -59,7 +59,6 @@ local function Now() return Plain(GetTime) or 0 end
 local function IsKnown(spellID) return Plain(C_SpellBook.IsSpellKnown, spellID) == true end
 
 -- spell the demon knows now
-local function PetKnows(spellID) return Plain(C_SpellBook.IsSpellKnown, spellID, ns.PetBank()) == true end
 
 local healthCurve, timeOptions
 
@@ -380,7 +379,7 @@ local function ArrangeFocus()
     local typeID, shown = not everything and FocusTypeID() or nil, {}
     for _, item in ipairs(list.items) do
         local def = item.def
-        local id = Core.FocusIconSpell(def, def.pet and PetKnows or IsKnown, everything)
+        local id = Core.FocusIconSpell(def, def.pet and ns.PetKnows or IsKnown, everything)
         item.spell = id
         shown[def.key] = On("focus") and Core.FocusIconOn(def.key, ns.db.timers.focusOff) and id ~= nil
             and (typeID == nil or Core.FocusIconFits(def.key, typeID)) or nil

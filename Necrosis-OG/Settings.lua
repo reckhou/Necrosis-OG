@@ -454,7 +454,7 @@ local function MacroIcon(page, x, y, key)
     end, "ANCHOR_RIGHT", true)
     function icon:Refresh()
         self.texture:SetTexture(Plain(C_Spell.GetSpellTexture, spells[1]))
-        self.texture:SetDesaturated(Core.HighestKnown(spells, ns.Buttons.IsKnown) == nil)
+        self.texture:SetDesaturated(Core.HighestKnown(spells, Core.PET_CONTROL_SPELLS[key] and ns.PetKnows or ns.Buttons.IsKnown) == nil)
     end
     controls[#controls + 1] = icon
     return icon
@@ -507,8 +507,10 @@ local function GeneralPage(page)
     Heading(page, Text.SET_FOCUS_MACROS, -48)
     MacroIcon(page, 4, -64, "fear")
     MacroIcon(page, 34, -64, "banish")
-    MacroIcon(page, 64, -64, "enslaveDemon")
-    MacroIcon(page, 94, -64, "healthstone")
+    local seduction = MacroIcon(page, 64, -64, "seduction")
+    MacroIcon(page, 94, -64, "enslaveDemon")
+    MacroIcon(page, 124, -64, "healthstone")
+    table.insert(ns.onSpellsChanged, function() seduction:Refresh() end)
 
     Heading(page, Text.SET_HEAD_DISPLAY, -106)
     local animOn = function() return db().animation.on ~= false end
@@ -870,11 +872,11 @@ local PAGES = {
     { Text.SETTINGS_TAB_GENERAL, "Ability_Creature_Cursed_03", GeneralPage },
     { Text.SETTINGS_TAB_SPHERE, "INV_Misc_Gem_Amethyst_02", SpherePage },
     { Text.SETTINGS_TAB_BUTTONS, "Trade_Engineering", ButtonsPage },
-    { Text.SETTINGS_TAB_MENUS, "INV_Wand_1H_Stratholme_D_02", MenusPage },
-    { Text.SETTINGS_TAB_TIMERS, "Spell_Nature_TimeStop", TimersPage },
-    { Text.SETTINGS_TAB_ALERTS, "Ability_Creature_Disease_05", AlertsPage },
-    { Text.SETTINGS_TAB_REMINDERS, "Spell_Shadow_ShadowWard", RemindersPage },
-    { Text.SETTINGS_TAB_SPEECH, "Ability_Warrior_BattleShout", SpeechPage },
+    { Text.SETTINGS_TAB_MENUS, "INV_Misc_Book_01", MenusPage },
+    { Text.SETTINGS_TAB_TIMERS, "Spell_Shadow_Cripple", TimersPage },
+    { Text.SETTINGS_TAB_ALERTS, "INV_Misc_Bell_01", AlertsPage },
+    { Text.SETTINGS_TAB_REMINDERS, "INV_Misc_PocketWatch_01", RemindersPage },
+    { Text.SETTINGS_TAB_SPEECH, "ability_warrior_rallyingcry", SpeechPage },
 }
 
 function Window.ShowPage(index)
@@ -944,7 +946,7 @@ function Window.ClassicFrame(window, titleText)
     disc:SetVertexColor(0, 0, 0, 1)
     portrait:SetSize(54, 54)
     portrait:SetPoint("CENTER", window, "TOPLEFT", PORTRAIT_X, PORTRAIT_Y)
-    portrait:SetTexture(Core.UiTexture("AddonIcon"))
+    portrait:SetTexture(Core.UiTexture("SettingsLogo"))
     local portraitMask = window:CreateMaskTexture()
     portraitMask:SetTexture(Core.UiTexture("Mask"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     portraitMask:SetAllPoints(portrait)

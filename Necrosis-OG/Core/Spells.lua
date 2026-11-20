@@ -201,8 +201,8 @@ function Core.EnemySlotSpellKey(slotKey, spellID)
     return nil
 end
 
-Core.FOCUS_MACRO_KEYS = { "fear", "banish", "enslaveDemon" }
-Core.FOCUS_MACROS = { fear = "NOG Fear", banish = "NOG Banish", enslaveDemon = "NOG Subjugate" }
+Core.FOCUS_MACRO_KEYS = { "fear", "banish", "enslaveDemon", "seduction" }
+Core.FOCUS_MACROS = { fear = "NOG Fear", banish = "NOG Banish", enslaveDemon = "NOG Subjugate", seduction = "NOG Seduction" }
 
 Core.STONE_MACRO_KEYS = { "healthstone" }
 Core.STONE_MACROS = { healthstone = "NOG Healthstone" }

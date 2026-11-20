@@ -723,7 +723,7 @@ local function MacroText(key)
         if not text or text == "" then return nil end
         return Core.STONE_MACROS[key], SHOW_TOOLTIP .. text
     end
-    local id = Core.HighestKnown(Core.SPELLS[key], Buttons.IsKnown)
+    local id = Core.HighestKnown(Core.SPELLS[key], Core.PET_CONTROL_SPELLS[key] and ns.PetKnows or Buttons.IsKnown)
     local spellName = id and SpellName(id)
     if not spellName then return nil end
     return Core.FOCUS_MACROS[key], Core.FocusMacroBody(spellName, ns.db.buttons.autoFocus == true)
@@ -757,6 +757,14 @@ function Buttons.SyncFocusMacros()
 end
 
 Buttons.OnRefresh(Buttons.SyncFocusMacros)
+table.insert(ns.onSpellsChanged, function()
+    if not macrosReady or not ns.db or not MacrosAvailable() then return end
+    if InCombat() then
+        pending = true
+    else
+        SyncFocusMacro("seduction", ns.db.buttons.autoFocus == true)
+    end
+end)
 
 -- put focus macro on cursor
 function Buttons.PickupFocusMacro(key)
