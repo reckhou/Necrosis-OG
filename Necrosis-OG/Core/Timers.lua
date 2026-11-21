@@ -29,7 +29,21 @@ Core.TIMER_RESIST_WINDOW = 1.5 -- sec after cast that resist text remove timer
 Core.TIMER_LISTS = { "focus", "multi" }
 
 Core.TIMER_LIST_SETTINGS = { "timers.focusOn", "timers.focusOff", "timers.controlOn", "timers.multiOn", "timers.grow",
-    "timers.trackOff" }
+    "timers.trackOff", "timers.trackOrder", "timers.plateReminder.on" }
+
+Core.MISSING_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.targetReminder", "timers.plateReminder" }
+
+Core.TARGET_OFFSET_MIN, Core.TARGET_OFFSET_MAX = -1000, 1000
+
+function Core.ClampTargetOffset(value, fallback)
+    return Core.ClampValue(value, Core.TARGET_OFFSET_MIN, Core.TARGET_OFFSET_MAX, 1, fallback or 0)
+end
+
+Core.PLATE_OFFSET_MIN, Core.PLATE_OFFSET_MAX, Core.PLATE_OFFSET_STEP = -100, 100, 1
+
+function Core.ClampPlateOffset(value, fallback)
+    return Core.ClampValue(value, Core.PLATE_OFFSET_MIN, Core.PLATE_OFFSET_MAX, Core.PLATE_OFFSET_STEP, fallback or 0)
+end
 
 Core.STYLED_LISTS = { multi = true }
 
@@ -87,6 +101,14 @@ Core.HEALTH_COLOUR_POINTS = { { 0, 1, 0, 0 }, { 0.5, 1, 1, 0 }, { 1, 0, 1, 0 } }
 Core.FLASH_LEAD_SECONDS = 5
 Core.FLASH_TEXT_COLOUR = { 1, 0.35, 0.2 }
 Core.FLASH_FAR_SECONDS = 86400
+
+Core.MISSING_FLASH_STEP = 0.15
+
+function Core.FlashFactor(time, phase)
+    local part = (time / Core.FLASH_SECONDS + (phase or 0)) % 1
+    local down = part < 0.5 and part * 2 or (1 - part) * 2
+    return 1 - (1 - Core.FLASH_LOW) * down
+end
 
 -- curve point of time text colour, { sec left, r, g, b, alpha }
 function Core.TimeFlashPoints()

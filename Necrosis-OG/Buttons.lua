@@ -100,6 +100,26 @@ function Buttons.DressRing(frame, inset, art)
     frame.ring:SetTexture(Core.UiTexture(art .. "-01"))
 end
 
+-- Necrosis picture fills button, game icon sits cut round in grey ring. ringed is which look
+function Buttons.ShowRing(button, ringed)
+    local inset = Core.MENU_ICON_INSET * Core.BUTTON_SIZE / Core.MENU_ITEM_SIZE
+    if not button.dressed then
+        button.dressed = true
+        Buttons.DressRing(button, inset, "Ring")
+        button.ringed = true
+    end
+    if button.ringed == ringed then return end
+    button.ringed = ringed
+    local offset = ringed and inset or 0
+    button.icon:ClearAllPoints()
+    button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", offset, -offset)
+    button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -offset, offset)
+    if button.iconMask then
+        if ringed then button.icon:AddMaskTexture(button.iconMask) else button.icon:RemoveMaskTexture(button.iconMask) end
+    end
+    button.ring:SetShown(ringed)
+end
+
 -- set many attributes, false will clear one
 function Buttons.SetActions(button, actions)
     for name, value in pairs(actions) do
@@ -726,6 +746,10 @@ local function MacroText(key)
     local id = Core.HighestKnown(Core.SPELLS[key], Core.PET_CONTROL_SPELLS[key] and ns.PetKnows or Buttons.IsKnown)
     local spellName = id and SpellName(id)
     if not spellName then return nil end
+    if Core.CURSE_MACROS[key] then
+        local amplify = Core.HighestKnown(Core.SPELLS.amplifyCurse, Buttons.IsKnown)
+        return Core.CURSE_MACROS[key], Core.AmplifyMacroBody(amplify and SpellName(amplify), spellName)
+    end
     return Core.FOCUS_MACROS[key], Core.FocusMacroBody(spellName, ns.db.buttons.autoFocus == true)
 end
 
@@ -754,6 +778,7 @@ function Buttons.SyncFocusMacros()
     local focus = ns.db.buttons.autoFocus == true
     for _, key in ipairs(Core.FOCUS_MACRO_KEYS) do SyncFocusMacro(key, focus) end
     for _, key in ipairs(Core.STONE_MACRO_KEYS) do SyncFocusMacro(key, false) end
+    for _, key in ipairs(Core.CURSE_MACRO_KEYS) do SyncFocusMacro(key, false) end
 end
 
 Buttons.OnRefresh(Buttons.SyncFocusMacros)
@@ -768,7 +793,7 @@ end)
 
 -- put focus macro on cursor
 function Buttons.PickupFocusMacro(key)
-    if not (Core.FOCUS_MACROS[key] or Core.STONE_MACROS[key]) or not macrosReady or InCombat() or not MacrosAvailable() then return false end
+    if not (Core.FOCUS_MACROS[key] or Core.STONE_MACROS[key] or Core.CURSE_MACROS[key]) or not macrosReady or InCombat() or not MacrosAvailable() then return false end
     if type(PickupMacro) ~= "function" then return false end
     local index = SyncFocusMacro(key, true)
     if not index then return false end

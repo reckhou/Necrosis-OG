@@ -30,7 +30,7 @@ Core.DEMO = {
     focusOutOfRange = "deathCoil",
     enemies = {
         { portrait = "voidwalker", health = 85, threat = 100,
-            slots = { bane = 14, corruption = 10, immolate = 8, siphonLife = 12, curse = 16 } },
+            slots = { bane = 14, corruption = 10, immolate = 8, siphonLife = 12, demonicBrand = 15, curse = 16 } },
         { portrait = "felhunter", health = 47, threat = 64, target = true, slots = { bane = 9, corruption = 13, curse = 7 } },
         { portrait = "succubus", health = 18, threat = 30, slots = { corruption = 6, immolate = 11 } },
     },
@@ -38,6 +38,8 @@ Core.DEMO = {
     procStep = 2.5,
     reminderStep = 2.5,
     reminderSizes = { 3, 4, 3, 2, 4, 3 },
+    missingStep = 2.5,
+    missingSets = { { 1, 2, 3, 4, 5, 6 }, { 2, 3, 5, 6 }, { 3, 6 }, { 6 }, { 1, 3, 4 }, { 1, 2, 4, 6 } },
     shardStep = 0.5,
     threatStep = 0.25, threatPerStep = 5,
 }

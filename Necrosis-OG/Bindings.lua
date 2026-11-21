@@ -20,7 +20,7 @@
 -- key binding actions
 local _, ns = ...
 local Core, Text, Buttons, Stones = ns.Core, ns.Text, ns.Buttons, ns.Stones
-local Plain, SpellName, InCombat = ns.Game.Plain, ns.Game.SpellName, ns.Game.InCombat
+local SpellName, InCombat = ns.Game.SpellName, ns.Game.InCombat
 local Bindings = {}
 ns.Bindings = Bindings
 
@@ -72,7 +72,7 @@ Buttons.OnCreate(function()
         if held.soulstone and ns.Speech then ns.Speech.Speak("soulstone", "friend") end
     end)
     buttons.mount:SetScript("PreClick", function()
-        if buttons.mount:GetAttribute("spell1") and not Plain(IsMounted) and ns.Speech then
+        if ns.Mount.WillSummon() and ns.Speech then
             ns.Speech.Speak("mount")
         end
     end)
@@ -85,10 +85,8 @@ Buttons.OnRefresh(function()
         if key == "healthstone" or key == "soulstone" then
             actions = { type1 = "macro", spell1 = false, macrotext1 = StoneMacro(key) }
         elseif key == "mount" then
-            local id = Core.PickSpell({ "felsteed", "dreadsteed" }, Buttons.IsKnown)
-            local spell = id and SpellName(id)
-            actions = { type1 = "macro", spell1 = id or false,
-                macrotext1 = spell and ("/cast [nomounted] " .. spell .. "\n/dismount [mounted]") or "/dismount [mounted]" }
+            -- mount button pick, second press dismount
+            actions = { type1 = "macro", spell1 = false, macrotext1 = ns.Mount.Macro() }
         else
             local spellKey = entry.spell
             if key == "lastBane" then

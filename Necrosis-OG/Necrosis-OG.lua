@@ -72,7 +72,7 @@ events:SetScript("OnEvent", function(self, event, name)
         if Core.IsNewSettings(NecrosisOGDB) then
             NecrosisOGDB = Core.NewSettings()
         else
-            NecrosisOGDB = Core.ApplyDefaults(NecrosisOGDB, Core.DEFAULTS)
+            NecrosisOGDB = Core.ApplyDefaults(Core.Migrate(NecrosisOGDB), Core.DEFAULTS)
         end
         ns.db = NecrosisOGDB
         ns.Fire(ns.onLoad, ns.db)

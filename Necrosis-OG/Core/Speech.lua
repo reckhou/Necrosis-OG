@@ -25,6 +25,12 @@ Core.SPEECH_SUBJECTS = { "imp", "voidwalker", "succubus", "incubus", "felhunter"
     "soulstone", "ritualOfSummoning", "mount" }
 Core.SPEECH_MAX = 100
 Core.SPEECH_COOLDOWN = 5
+Core.SPEECH_COOLDOWNS = { mount = 30 } -- longer cooldown for some subject
+
+-- seconds before subject speak again
+function Core.SpeechCooldown(subject)
+    return Core.SPEECH_COOLDOWNS[subject] or Core.SPEECH_COOLDOWN
+end
 
 local function TextSet(text, key)
     local emote, line = rawget(text, key .. "EMOTE"), rawget(text, key .. "LINE")

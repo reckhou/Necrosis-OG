@@ -50,7 +50,6 @@ local glowSeen = {}
 local reading
 local amplifyEnd
 local AMPLIFY = Core.ToSet(Core.SPELLS.amplifyCurse)
-local CURSES = Core.ToSet(Core.CURSE_IDS)
 local GLOW_SPELLS = {}
 for _, proc in ipairs(PROCS) do
     if proc.glows then
@@ -177,7 +176,11 @@ local TIPS = {
     decimation = function()
         return string.format(Text.TIP_PROC_DECIMATION, SpellName(Core.SPELLS.soulFire[1]) or "?")
     end,
-    amplifyCurse = function() return Text.TIP_PROC_AMPLIFY_CURSE end,
+    amplifyCurse = function()
+        local names = {}
+        for i, key in ipairs(Core.AMPLIFY_LIST) do names[i] = SpellName(Core.SPELLS[key][1]) or "?" end
+        return string.format(Text.TIP_PROC_AMPLIFY_CURSE, names[1], names[2], names[3])
+    end,
     antiFear = function()
         return ns.Alerts.Active() == "type" and Text.TIP_ANTI_FEAR_TYPE or Text.TIP_ANTI_FEAR_IMMUNE
     end,
@@ -266,7 +269,7 @@ local function OnPlayerSpell(spellID)
         if length then amplifyEnd.At(1, GetTime() + length) else amplifyEnd.Cancel(1) end
         SetActive(BY_KEY.amplifyCurse, true)
         ShowTime("amplifyCurse", GetTime(), length)
-    elseif CURSES[spellID] and active.amplifyCurse then
+    elseif Core.AMPLIFY_IDS[spellID] and active.amplifyCurse then
         EndAmplify()
     end
 end

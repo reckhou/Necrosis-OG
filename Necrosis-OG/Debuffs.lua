@@ -59,6 +59,9 @@ local function Now() return Plain(GetTime) or 0 end
 local function IsKnown(spellID) return Plain(C_SpellBook.IsSpellKnown, spellID) == true end
 
 -- spell the demon knows now
+local function KnowsFamily(spellID)
+    return IsKnown(spellID) or (type(IsPlayerSpell) == "function" and Plain(IsPlayerSpell, spellID) == true)
+end
 
 local healthCurve, timeOptions
 
@@ -248,6 +251,10 @@ local function SetFlash(object, on, dimmed)
     end
 end
 
+local function ApplyFocusFlash(item)
+    SetFlash(item, Core.FocusFlashOn(item.def, item.casted), Core.FOCUS_DIM)
+end
+
 local function ApplyPlace(list)
     if list.guarded and InCombat() then
         pending = true
@@ -312,6 +319,57 @@ local function IconTooltip(item)
     end
 end
 
+local LAYOUT_TEMPLATE = "DisableUntrustedLayoutScriptsTemplate"
+
+local function NewProbe(frame, ids)
+    local width = Core.FOCUS_ICON
+    local probe = CreateFrame("AuraContainer", nil, frame, "CustomAuraContainerTemplate," .. LAYOUT_TEMPLATE)
+    probe:SetEnabled(false)
+    probe:EnableMouse(false)
+    probe:SetAlpha(0)
+    probe:SetFlowLayoutAxis(AnchorUtil.FlowLayoutAxis.Horizontal)
+    probe:SetFlowLayoutAnchorPoint("TOPLEFT")
+    probe:SetFlowLayoutGrowthDirection(AnchorUtil.FlowDirection.Right, AnchorUtil.FlowDirection.Down)
+    probe:SetFlowLayoutPadding(0, 0, 0, 0)
+    probe:SetFlowLayoutMaximumLineSize(width + 1)
+    probe:AddAuraGroup("gate", FILTER, {
+        maxFrameCount = 1,
+        candidateFilters = { isFromPlayerOrPlayerPet = true, includeSpellIDs = ids },
+        layout = { elementWidth = width, elementHeight = 1, elementSpacing = 0, lineSpacing = 0 },
+        initializeFrame = function(button)
+            button:SetSize(1, 1)
+            button:EnableMouse(false)
+        end,
+    })
+    probe:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    probe:SetUnit("focus")
+    probe:SetEnabled(true)
+    return probe
+end
+
+local function NewGate(frame, def)
+    local gate = { probes = {} }
+    local outer = frame
+    for _, key in ipairs(def.gates) do
+        local probe = NewProbe(frame, Core.FocusIconIds(Core.FOCUS_ICON_BY_KEY[key]))
+        gate.probes[#gate.probes + 1] = probe
+        local clip = CreateFrame("Frame", nil, outer, LAYOUT_TEMPLATE)
+        clip:EnableMouse(false)
+        clip:SetClipsChildren(true)
+        clip:SetHeight(Core.FOCUS_ICON)
+        clip:SetPoint("TOPLEFT", probe, "TOPLEFT", 0, 0)
+        clip:SetPoint("TOPRIGHT", probe, "TOPRIGHT", 0, 0)
+        clip:SetFrameLevel(frame:GetFrameLevel() + 1)
+        outer = clip
+    end
+    gate.icon = outer:CreateTexture(nil, "ARTWORK")
+    Mask(outer, gate.icon)
+    Inside(gate.icon, frame)
+    gate.blink = CreateBlink(gate.icon)
+    gate.blink:Play()
+    return gate
+end
+
 local function NewFocusIcon(header, def)
     local item = { def = def, containers = {} }
     local frame = CreateFrame("Frame", nil, header)
@@ -322,6 +380,11 @@ local function NewFocusIcon(header, def)
     item.icon:SetAlpha(Core.FOCUS_DIM)
     item.blink = CreateBlink(item.icon)
     item.containers[FOCUS_STYLE] = NewContainer(frame, "focus", "focus", FOCUS_STYLE, true, Core.FocusIconIds(def))
+    ApplyFocusFlash(item)
+    if def.gates then
+        local ok, gate = pcall(NewGate, frame, def)
+        item.gate = ok and gate or nil
+    end
     local cover = CreateFrame("Frame", nil, frame)
     cover:SetAllPoints(frame)
     cover:SetFrameLevel(frame:GetFrameLevel() + 8)
@@ -392,12 +455,13 @@ local function ArrangeFocus()
             item.frame:SetPoint("TOPLEFT", list.header, "TOPLEFT", place.col * ICON_STEP, -place.row * ICON_STEP)
             item.frame:SetAlpha(1)
             item.icon:SetTexture(Plain(C_Spell.GetSpellTexture, item.spell))
+            if item.gate then item.gate.icon:SetTexture(Plain(C_Spell.GetSpellTexture, item.spell)) end
             local cast = item.spell
             if item.def.pet then cast = SpellName(item.spell) or item.spell end
             item.click:SetAttribute("spell1", cast)
             for _, container in pairs(item.containers) do PlaceContainer(container, item.frame, true, 0) end
             ChooseStyle(item.containers, FOCUS_STYLE)
-            SetFlash(item, item.casted == true, Core.FOCUS_DIM)
+            ApplyFocusFlash(item)
             item.frame:Show()
         else
             item.frame:Hide()
@@ -473,6 +537,7 @@ local function RefreshFocusAuras()
     if not list then return end
     for _, item in ipairs(list.items) do
         for _, container in pairs(item.containers) do Call(container, "UpdateAllAuras") end
+        for _, probe in ipairs(item.gate and item.gate.probes or {}) do Call(probe, "UpdateAllAuras") end
     end
 end
 
@@ -566,6 +631,7 @@ local function SlotTexture(slot)
     for _, key in ipairs(slot.def.keys) do
         spell = spell or Core.HighestKnown(Core.SPELLS[key], IsKnown)
     end
+    if not spell and slot.def.talent and KnowsFamily(slot.def.talent) then spell = Core.SPELLS[slot.def.keys[1]][1] end
     if not spell and ns.demo == true then spell = Core.SPELLS[slot.def.keys[1]][1] end
     return spell and Plain(C_Spell.GetSpellTexture, spell) or nil
 end
@@ -609,6 +675,7 @@ warnSchedule = ns.Durations.NewSchedule(UpdateWarn)
 
 -- debuff length from spell description
 local function DebuffLength(spellID)
+    if spellID == Core.SPELLS.demonicBrand[1] then return Core.DEMONIC_BRAND_SECONDS end
     if debuffLengths[spellID] == nil then
         debuffLengths[spellID] = Core.ParseDebuffLength(Plain(C_Spell.GetSpellDescription, spellID))
     end
@@ -713,7 +780,7 @@ end
 local function ArrangeMulti()
     local multi = lists.multi
     if not multi then return end
-    local known = Core.EnemySlotsKnown(IsKnown, ns.demo == true, ns.db.timers.trackOff)
+    local known = Core.EnemySlotsKnown(KnowsFamily, ns.demo == true, ns.db.timers.trackOff, ns.db.timers.trackOrder)
     local ordinal = {}
     for i, slot in ipairs(known) do ordinal[slot.key] = i end
     multi.columns = #known
@@ -928,6 +995,12 @@ local function Describe(line, candidate)
 end
 
 local PLATE_SETTINGS = { "nameplateShowEnemies", "nameplateShowOffscreen" }
+
+local function PlateSettingNeeded(name)
+    if On("multi") then return true end
+    return name == "nameplateShowEnemies" and ns.db.timers.plateReminder.on ~= false
+end
+
 local plateSyncPending = false
 
 local function SetGameSetting(name, value)
@@ -944,13 +1017,11 @@ local function SyncNameplateSettings()
     plateSyncPending = false
     if not (C_CVar and C_CVar.GetCVar) then return end
     local changed = ns.db.timers.plateSettings
-    if On("multi") then
-        for _, name in ipairs(PLATE_SETTINGS) do
+    for _, name in ipairs(PLATE_SETTINGS) do
+        if PlateSettingNeeded(name) then
             local value = Plain(C_CVar.GetCVar, name)
             if value ~= nil and value ~= "1" and SetGameSetting(name, "1") then changed[name] = true end
-        end
-    else
-        for name in pairs(changed) do
+        elseif changed[name] then
             if Plain(C_CVar.GetCVar, name) == "1" then SetGameSetting(name, "0") end
             changed[name] = nil
         end
@@ -1125,6 +1196,10 @@ end
 
 -- remember own casts on enemies
 local function OnCast(spellID, unit)
+    if unit ~= "pet" and KnowsFamily(Core.DEMONIC_BRAND_TALENT) then
+        local name = SpellName(spellID)
+        if name and name == SpellName(Core.SEARING_PAIN) then spellID = Core.SPELLS.demonicBrand[1] end
+    end
     local rowKey, slotKey = Core.FocusIconOfSpell(spellID), Core.EnemySlotOfSpell(spellID)
     local byPet = unit == "pet"
     if byPet then
@@ -1140,7 +1215,7 @@ local function OnCast(spellID, unit)
         local row = FocusItem(rowKey)
         if row then
             row.casted = true
-            SetFlash(row, true, Core.FOCUS_DIM)
+            ApplyFocusFlash(row)
         end
     end
     local multi = lists.multi
@@ -1260,7 +1335,7 @@ handlers.PLAYER_FOCUS_CHANGED = function()
     if not list then return end
     for _, item in ipairs(list.items) do
         item.casted = false
-        SetFlash(item, false, Core.FOCUS_DIM)
+        ApplyFocusFlash(item)
     end
     RefreshFocusAuras()
     if InCombat() then UpdateFocusFit() else ArrangeFocus() end
@@ -1370,9 +1445,27 @@ local function DescribeDemo(line, index, def)
 end
 
 -- one fake debuff
-local function DemoDebuff(frame, spellID, length, now)
+local function DemoDebuff(frame, spellID, length, now, after)
     RunDemoIcon(frame, spellID, now, length)
-    ns.DemoAt(now + length, function() StopDemoIcon(frame) end)
+    if after then after() end
+    ns.DemoAt(now + length, function()
+        StopDemoIcon(frame)
+        if after then after() end
+    end)
+end
+
+local function DemoGates()
+    local list = lists.focus
+    for _, item in ipairs(list and list.items or {}) do
+        if item.def.gates then
+            local on = true
+            for _, key in ipairs(item.def.gates) do
+                local gate = FocusItem(key)
+                on = on and gate ~= nil and gate.demo ~= nil and gate.demo:IsShown() == true
+            end
+            SetFlash(item, on, Core.FOCUS_DIM)
+        end
+    end
 end
 
 local function StartDemoData()
@@ -1384,8 +1477,8 @@ local function StartDemoData()
             ns.DemoEvery(length + pause, function(now)
                 if not item.spell then return end
                 item.casted = true
-                SetFlash(item, true, Core.FOCUS_DIM)
-                DemoDebuff(item.demo, item.spell, length, now)
+                ApplyFocusFlash(item)
+                DemoDebuff(item.demo, item.spell, length, now, DemoGates)
             end)
         end
     end
@@ -1415,7 +1508,7 @@ local function StopDemoData()
     for _, item in ipairs(focus and focus.items or {}) do
         StopDemoIcon(item.demo)
         item.casted = false
-        SetFlash(item, false, Core.FOCUS_DIM)
+        ApplyFocusFlash(item)
     end
     UpdateFocusRange()
     for _, line in ipairs(multi and multi.demoLines or {}) do
@@ -1470,7 +1563,8 @@ function Debuffs.Sample(parent, index)
     line.demo = true
     DescribeDemo(line, index, def)
     local row2, n = -(Core.MULTI_HEAD + Core.MULTI_ROW_GAP), 0
-    for _, slot in ipairs(line.slots) do
+    for _, family in ipairs(Core.EnemySlotsKnown(KnowsFamily, true, ns.db.timers.trackOff, ns.db.timers.trackOrder)) do
+        local slot = SlotOf(line, family.key)
         if def.slots[slot.def.key] then
             n = n + 1
             slot.frame:ClearAllPoints()

@@ -91,7 +91,11 @@ local function LastUtility()
     return entry, id
 end
 
-local function Amplify() return Core.HighestKnown(Core.SPELLS.amplifyCurse, Buttons.IsKnown) end
+-- amplify curse id for right click of the item, nil when curse is not amplified or not learned
+local function Amplify(entry)
+    if not Core.AMPLIFY_KEYS[entry.keys[1]] then return nil end
+    return Core.HighestKnown(Core.SPELLS.amplifyCurse, Buttons.IsKnown)
+end
 
 local menus = {}
 
@@ -102,6 +106,10 @@ local function ItemTooltip(item)
             if Core.HighestKnown(Core.SPELLS.felDomination, Buttons.IsKnown) then
                 ns.Tips.Click(tooltip, "right", Text.ACT_FAST_SUMMON)
             end
+        end
+        local amplify = item.spellID and Amplify(item.entry)
+        if amplify then
+            ns.Tips.Click(tooltip, "right", string.format(Text.ACT_THEN, SpellName(amplify) or "?", SpellName(item.spellID) or "?"))
         end
     end
 end
@@ -298,13 +306,20 @@ local function RefreshItem(item)
     local id = Core.PickSpell(item.entry.keys, Buttons.IsKnown)
     item.spellID = id
     local actions = Buttons.CastActions(item.entry.keys[1], id)
-    actions.type2, actions.macrotext2 = false, false
+    -- right click cast the same as left click, some spell have own right click
+    actions.type2, actions.spell2, actions.macrotext2 = actions.type1, actions.spell1, actions.macrotext1
+    local amplify = id and Amplify(item.entry)
+    local amplifyName, curseName = amplify and SpellName(amplify), id and SpellName(id)
+    if amplifyName and curseName then
+        actions.type2, actions.macrotext2 = "macro", Core.AmplifyCast(amplifyName, curseName)
+    end
     if item.entry.demon then
         local domination = id and Core.HighestKnown(Core.SPELLS.felDomination, Buttons.IsKnown)
         local dominationName, demonName = domination and SpellName(domination), id and SpellName(id)
-        local full = dominationName and Core.DemonSummonMacro(dominationName, demonName)
+        local full = Core.DemonSummonMacro(dominationName, demonName)
         Buttons.SummonActions(item, actions, full, full and Core.DemonSummonMacro(dominationName, demonName, false, true))
     end
+    if actions.type2 == "macro" then actions.spell2 = false end
     Buttons.SetActions(item, actions)
     if item.entry.gameIcon then
         item.icon:SetTexture(Plain(C_Spell.GetSpellTexture, id or Core.SPELLS[item.entry.keys[1]][1]))
@@ -330,12 +345,8 @@ local function MenuTooltip(key)
         elseif key == "curses" then
             Tips.Title(tooltip, Text.TIP_CURSES_TITLE)
             Tips.Click(tooltip, "left", Text.ACT_OPEN_MENU)
-            local last, amplify = LastCurse(), Amplify()
-            if last and amplify then
-                Tips.Click(tooltip, "right", string.format(Text.ACT_THEN, SpellName(amplify) or "?", SpellName(last) or "?"))
-            elseif last then
-                Tips.Click(tooltip, "right", SpellName(last) or "?")
-            end
+            local last = LastCurse()
+            if last then Tips.Click(tooltip, "right", SpellName(last) or "?") end
         else
             Tips.Title(tooltip, Text.TIP_UTILITY_TITLE)
             Tips.Click(tooltip, "left", Text.ACT_OPEN_MENU)
@@ -367,23 +378,7 @@ local function LastEntry(key)
     return nil
 end
 
-local function ShowRing(button, ringed)
-    if not button.dressed then
-        button.dressed = true
-        DressRing(button, Core.MENU_ICON_INSET * Core.BUTTON_SIZE / Core.MENU_ITEM_SIZE, "Ring")
-        button.ringed = true
-    end
-    if button.ringed == ringed then return end
-    button.ringed = ringed
-    local inset = ringed and Core.MENU_ICON_INSET * Core.BUTTON_SIZE / Core.MENU_ITEM_SIZE or 0
-    button.icon:ClearAllPoints()
-    button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", inset, -inset)
-    button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -inset, inset)
-    if button.iconMask then
-        if ringed then button.icon:AddMaskTexture(button.iconMask) else button.icon:RemoveMaskTexture(button.iconMask) end
-    end
-    button.ring:SetShown(ringed)
-end
+local ShowRing = Buttons.ShowRing
 
 -- button picture is last spell's, else game icon in grey ring
 local function WearPicture(key)
@@ -484,14 +479,7 @@ local function RefreshMenu(key)
     if key == "demons" or key == "curses" then
         local last
         if key == "demons" then last = LastDemon() else last = LastCurse() end
-        local actions = { type2 = last and "spell" or false, spell2 = last or false, macrotext2 = false }
-        local amplify = key == "curses" and last and Amplify()
-        local amplifyName, curseName = amplify and SpellName(amplify), last and SpellName(last)
-        if amplifyName and curseName then
-            actions.type2, actions.spell2 = "macro", false
-            actions.macrotext2 = "/cast " .. amplifyName .. "\n/cast " .. curseName
-        end
-        Buttons.SetActions(state.button, actions)
+        Buttons.SetActions(state.button, { type2 = last and "spell" or false, spell2 = last or false, macrotext2 = false })
     end
 end
 

@@ -17,20 +17,93 @@
 --
 -- SPDX-License-Identifier: GPL-2.0-or-later
 
--- mount button, left click summon steed and right click use hearthstone
+-- mount button, left click summon random favourite mount and right click use hearthstone
 local _, ns = ...
 local Core, Text = ns.Core, ns.Text
 local Buttons = ns.Buttons
-local IsSecret, Plain = ns.Game.IsSecret, ns.Game.Plain
+local IsSecret, Plain, SpellName, InCombat = ns.Game.IsSecret, ns.Game.Plain, ns.Game.SpellName, ns.Game.InCombat
 
 local Mount = {}
 ns.Mount = Mount
 
 local button
+local pick   -- mount for next click
+local ridden -- mount ride now
+local pool = {}
+local reroll -- summon happen, pick other mount next refresh
 
--- dreadsteed first, then felsteed
-local function BestSteed()
-    return Core.PickSpell({ "felsteed", "dreadsteed" }, Buttons.IsKnown)
+local function Mounted() return Plain(IsMounted) == true end
+
+local function MountInfo(mountID)
+    local journal = C_MountJournal
+    if not journal or type(journal.GetMountInfoByID) ~= "function" then return nil end
+    local ok, _, spellID, icon, active, usable, _, favourite, _, _, hidden, collected =
+        pcall(journal.GetMountInfoByID, mountID)
+    if not ok then return nil end
+    for _, value in ipairs({ spellID, icon, active, usable, favourite, hidden, collected }) do
+        if IsSecret(value) then return nil end
+    end
+    if type(spellID) ~= "number" then return nil end
+    return { mountID = mountID, spellID = spellID, icon = icon, active = active == true, usable = usable == true,
+        favourite = favourite == true, hidden = hidden == true, collected = collected == true }
+end
+
+-- whole mount collection
+local function ReadCollection()
+    local list = {}
+    local ids = C_MountJournal and Plain(C_MountJournal.GetMountIDs)
+    if type(ids) ~= "table" then return list end
+    for _, id in ipairs(ids) do
+        local mount = MountInfo(id)
+        if mount then list[#list + 1] = mount end
+    end
+    return list
+end
+
+local function ActiveMount(collection)
+    for _, mount in ipairs(collection) do
+        if mount.active then return mount end
+    end
+    return nil
+end
+
+-- read collection and pick next mount
+local function Choose()
+    local collection = ReadCollection()
+    -- steed from spellbook, because Forever maybe not have it in collection
+    local id = Core.PickSpell({ "felsteed", "dreadsteed" }, Buttons.IsKnown)
+    local bookSteed = id and { spellID = id, icon = Plain(C_Spell.GetSpellTexture, id),
+        usable = Plain(IsIndoors) ~= true and Plain(C_Spell.IsSpellUsable, id) ~= false }
+    pool = Core.MountPool(collection, bookSteed)
+    if Mounted() then
+        ridden = ActiveMount(collection) or ridden or pick
+    else
+        ridden = nil
+    end
+    local keep = pick and not reroll and Core.MountInPool(pool, pick.spellID)
+    if keep then
+        pick = keep
+    else
+        local avoid = (ridden and ridden.spellID) or (pick and pick.spellID)
+        pick = Core.NextMount(pool, avoid, math.random)
+    end
+    reroll = false
+end
+
+local function Wear()
+    local mounted = Mounted()
+    local shown = mounted and ridden or pick
+    if shown and shown.icon then
+        Buttons.ShowRing(button, true)
+        button.icon:SetTexture(shown.icon)
+        button.icon:SetTexCoord(0, 1, 0, 1)
+    else
+        Buttons.ShowRing(button, false)
+        button.icon:SetTexture(Core.UiTexture("MountButton-01"))
+        button.icon:SetTexCoord(0, 1, 0, 1)
+    end
+    local grey = shown == nil or (not mounted and not Mount.WillSummon())
+    button.icon:SetDesaturated(grey and not ns.demo)
 end
 
 local function HearthLine()
@@ -44,10 +117,35 @@ local function HearthLine()
 end
 
 local function Tooltip(tooltip)
-    Buttons.SpellTooltip(tooltip, button.spellID, Core.SPELLS.felsteed[1])
-    ns.Tips.Click(tooltip, "left", Text.ACT_STEED)
+    local mounted = Mounted()
+    local shown = mounted and ridden or pick
+    Buttons.SpellTooltip(tooltip, shown and shown.spellID, Core.SPELLS.felsteed[1])
+    ns.Tips.Click(tooltip, "left", mounted and Text.ACT_DISMOUNT or (pick and Text.ACT_MOUNT))
     ns.Tips.Click(tooltip, "right", Text.ACT_HEARTHSTONE)
+    if not mounted and pick then
+        ns.Tips.Note(tooltip, pick.favourite and Text.TIP_MOUNT_FAVOURITE or Text.TIP_MOUNT_NO_FAVOURITE)
+    end
     ns.Tips.Note(tooltip, HearthLine())
+end
+
+-- macro for left click, key binding use it too
+function Mount.Macro()
+    return Core.MountMacro(pick and SpellName(pick.spellID))
+end
+
+-- pick can be summon here and now, hide answer count as usable
+local function PickUsable()
+    if pick.mountID and C_MountJournal and type(C_MountJournal.GetMountUsabilityByID) == "function" then
+        local ok, usable = pcall(C_MountJournal.GetMountUsabilityByID, pick.mountID, true)
+        if ok and usable ~= nil and not IsSecret(usable) then return usable == true end
+    end
+    if Plain(IsIndoors) == true then return false end
+    return Plain(C_Spell.IsSpellUsable, pick.spellID) ~= false
+end
+
+function Mount.WillSummon()
+    if pick == nil or Mounted() or InCombat() then return false end
+    return PickUsable()
 end
 
 Buttons.OnCreate(function(sphere)
@@ -57,18 +155,59 @@ Buttons.OnCreate(function(sphere)
     ns.Rings.Attach(button, button, "MountButton")
     button.tooltip = Tooltip
     button.speechSubject = function(mouse)
-        if button.spellID and mouse ~= "RightButton" then return "mount", nil end
+        if mouse ~= "RightButton" and Mount.WillSummon() then return "mount", nil end
     end
     Buttons.AddSlot("mount", button)
+
+    local events = CreateFrame("Frame")
+    events:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+    events:RegisterEvent("NEW_MOUNT_ADDED")
+    events:RegisterEvent("MOUNT_JOURNAL_USABILITY_CHANGED")
+    events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    local wearOnly = { PLAYER_REGEN_DISABLED = true, PLAYER_REGEN_ENABLED = true, ZONE_CHANGED_INDOORS = true,
+        ZONE_CHANGED = true, SPELL_UPDATE_USABLE = true }
+    for event in pairs(wearOnly) do events:RegisterEvent(event) end
+    events:SetScript("OnEvent", function(_, event)
+        if wearOnly[event] then
+            Wear()
+            return
+        end
+        if event == "PLAYER_MOUNT_DISPLAY_CHANGED" then
+            if Mounted() then
+                local collection = ReadCollection()
+                ridden = ActiveMount(collection) or pick
+                reroll = true
+            else
+                ridden = nil
+            end
+            Wear()
+            if reroll then Buttons.Refresh() end
+            return
+        end
+        Wear()
+        Buttons.Refresh()
+    end)
 end)
 
+-- game has no event for favourite change, so hook the call
+local hooked
+
+local function HookFavourites()
+    if hooked or not C_MountJournal or type(C_MountJournal.SetIsFavorite) ~= "function" then return end
+    hooked = true
+    hooksecurefunc(C_MountJournal, "SetIsFavorite", function()
+        if not InCombat() then Buttons.Refresh() end
+    end)
+end
+
 Buttons.OnRefresh(function()
-    local id = BestSteed()
-    button.spellID = id
-    Buttons.SetActions(button, { ["type*"] = id and "spell" or false, ["spell*"] = id or false,
+    HookFavourites()
+    Choose()
+    Buttons.SetActions(button, { ["type*"] = "macro", ["macrotext*"] = Mount.Macro(), ["spell*"] = false,
         type2 = "item", item2 = "item:" .. Core.HEARTHSTONE_ITEM })
-    button.icon:SetDesaturated(id == nil and not ns.demo)
-    button.wanted = id ~= nil or Buttons.DemoMode()
+    Wear()
+    button.wanted = pick ~= nil or Buttons.DemoMode()
 end)
 
 Mount.Button = function() return button end
+Mount.Pick = function() return pick end

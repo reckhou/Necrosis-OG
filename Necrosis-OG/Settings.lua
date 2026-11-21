@@ -29,7 +29,8 @@ local WINDOW_ART = "Interface\\PaperDollInfoFrame\\UI-Character-General-"
 local PAGE_LEFT, PAGE_TOP = 30, -82
 local PAGE_WIDTH, PAGE_HEIGHT = 290, 346
 Window.PAGE_WIDTH, Window.PAGE_HEIGHT = PAGE_WIDTH, PAGE_HEIGHT
-local TAB_GAP = 15
+local TAB_GAP = 12
+local TAB_TOP = -44
 local TAB_ART = "Interface\\SpellBook\\SpellBook-SkillLineTab"
 local ROW_HEIGHT = 18
 local MIN_ROW_HEIGHT = 16
@@ -92,8 +93,8 @@ local function Check(page, x, y, text, get, set, labelWidth)
     return box
 end
 
--- slider with value in the title
-local function Slider(page, x, y, text, low, high, step, get, set, kind)
+-- slider with value in the title, opts.snap is a value drag will stick to, opts.wheel is mouse wheel move one step
+local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     local slider = CreateFrame("Slider", nil, page, "UISliderTemplateWithLabels")
     slider:SetSize(SLIDER_WIDTH, 16)
     if slider.Text.SetFontObject then slider.Text:SetFontObject("GameFontHighlightSmall") end
@@ -112,9 +113,23 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind)
     slider:SetScript("OnValueChanged", function(self, value)
         if self.refreshing then return end
         value = Core.RoundToStep(value, step)
+        if opts and opts.snap and not self.stepping and math.abs(value - opts.snap) < (high - low) / SLIDER_WIDTH then
+            value = opts.snap
+            self.refreshing = true
+            self:SetValue(value)
+            self.refreshing = false
+        end
         Title(value)
         if math.abs(value - get()) > step / 2 then Changed(set)(value) end
     end)
+    if opts and opts.wheel then
+        slider:EnableMouseWheel(true)
+        slider:SetScript("OnMouseWheel", function(self, delta)
+            self.stepping = true
+            self:SetValue(math.max(low, math.min(high, Core.RoundToStep(self:GetValue() + delta * step, step))))
+            self.stepping = false
+        end)
+    end
     function slider:Refresh()
         self.refreshing = true
         self:SetValue(get())
@@ -451,6 +466,9 @@ local function MacroIcon(page, x, y, key)
     ns.Tips.Attach(icon, function(tooltip)
         ns.Tips.Title(tooltip, SpellName(spells[1]) or key)
         ns.Tips.Line(tooltip, Text.TIP_MACRO_DRAG)
+        if Core.CURSE_MACROS[key] then
+            ns.Tips.Line(tooltip, string.format(Text.ACT_THEN, SpellName(Core.SPELLS.amplifyCurse[1]) or "?", SpellName(spells[1]) or key))
+        end
     end, "ANCHOR_RIGHT", true)
     function icon:Refresh()
         self.texture:SetTexture(Plain(C_Spell.GetSpellTexture, spells[1]))
@@ -510,6 +528,7 @@ local function GeneralPage(page)
     local seduction = MacroIcon(page, 64, -64, "seduction")
     MacroIcon(page, 94, -64, "enslaveDemon")
     MacroIcon(page, 124, -64, "healthstone")
+    for i, key in ipairs(Core.CURSE_MACRO_KEYS) do MacroIcon(page, 124 + 30 * i, -64, key) end
     table.insert(ns.onSpellsChanged, function() seduction:Refresh() end)
 
     Heading(page, Text.SET_HEAD_DISPLAY, -106)
@@ -541,7 +560,7 @@ local function GeneralPage(page)
 end
 
 local function SpherePage(page)
-    Slider(page, 5, -16, Text.SET_SPHERE_SCALE, Core.SCALE_MIN, Core.SCALE_MAX, 1,
+    Slider(page, 5, -16, Text.SET_SPHERE_SCALE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
         function() return Core.ClampSphereScale(db().sphere.scale) end, function(value) ns.Sphere.SetScale(value) end, "percent")
     Slider(page, SLIDER_RIGHT, -16, Text.SET_SHARD_LIMIT, Core.SHARD_LIMIT_MIN, Core.SHARD_LIMIT_MAX, 1,
         function() return Core.ClampShardLimit(db().buttons.shardLimit) end, function(value) ns.Shards.SetLimit(value) end)
@@ -589,7 +608,7 @@ local function ButtonsPage(page)
     local function RingSlider(x, y, text, low, high, step, key, clamp, kind)
         Slider(ring, x, y, text, low, high, step, function() return clamp(db().sphere[key]) end, function(value)
             ns.SetSetting("sphere." .. key, value)
-        end, kind)
+        end, kind, { snap = Core.DEFAULTS.sphere[key], wheel = true })
     end
     RingSlider(5, -40, Text.SET_ROTATION, Core.ROTATION_MIN, Core.ROTATION_MAX, Core.ROTATION_STEP, "rotation",
         Core.ClampRotation)
@@ -602,7 +621,7 @@ local function ButtonsPage(page)
     local free = Section(page, function() return db().buttons.free end)
     local hint = Label(free, Text.SET_BUTTONS_FREE_HINT, 0, -36, "GameFontHighlightSmall")
     hint:SetWidth(PAGE_WIDTH)
-    PushButton(free, 4, -72, Text.SET_BUTTONS_RESET, function() ns.Buttons.ResetPlaces() end)
+    PushButton(free, 4, -85, Text.SET_BUTTONS_RESET, function() ns.Buttons.ResetPlaces() end, 138)
     Label(free, Text.SET_BUTTONS_SWITCH, 0, -130, "GameFontHighlightSmall"):SetWidth(PAGE_WIDTH)
 
     OrderList(page, 0, -162, PAGE_WIDTH - 10, #Core.BUTTON_SLOTS * ROW_HEIGHT, RingSource())
@@ -635,12 +654,11 @@ local function MenusPage(page)
 end
 
 local SWITCH_STEP = RIGHT_COLUMN
-local TRACK_STEP = 96
 
 local function KeyName(key) return SpellName(Core.SPELLS[key][1]) or key end
 
--- timers and controls tab
-local function TimersPage(page)
+-- controls tab
+local function ControlsPage(page)
     local timers = function() return db().timers end
 
     local focusOn = function() return timers().focusOn ~= false end
@@ -648,7 +666,7 @@ local function TimersPage(page)
     Check(page, 0, -16, Text.SET_SHOW, focusOn, function(on)
         ns.SetSetting("timers.focusOn", on)
     end)
-    GreyedBy(Slider(page, SLIDER_RIGHT, -30, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, 1,
+    GreyedBy(Slider(page, SLIDER_RIGHT, -30, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
         function() return Core.TimerScale(timers(), "focus") end, function(value) ns.Timers.SetScale("focus", value) end,
         "percent"), focusOn)
     GreyLabel(Heading(page, Text.SET_FOCUS_ICONS, -62), focusOn)
@@ -665,28 +683,147 @@ local function TimersPage(page)
     Check(page, 0, -146, Text.SET_SHOW, function() return timers().controlOn ~= false end, function(on)
         ns.SetSetting("timers.controlOn", on)
     end)
+end
 
-    local multiOn = function() return timers().multiOn ~= false end
-    Heading(page, Text.SET_MULTI_ON, -182)
-    Check(page, 0, -198, Text.SET_SHOW, multiOn, function(on)
-        ns.SetSetting("timers.multiOn", on)
-    end)
-    GreyedBy(Dropdown(page, RIGHT_COLUMN, -226, Text.SET_TIMER_GROWS, GROWTH,
+local SHOW_X = 200
+local HEAD_TOP = -8
+local HEAD_ROW = 28
+local SECTION_SPACE = 8
+local SLIDER_TOP = -14
+local SECTION_ROW = 46
+local TRACK_HEIGHT = 40 + #Core.ENEMY_SLOTS * ROW_HEIGHT
+
+local SCROLL_BAR_X = 4
+
+local function FamilyKnown(id) return ns.Buttons.IsKnown(id) or Plain(IsPlayerSpell, id) == true end
+
+local function FamilyName(slot)
+    if slot.key == "bane" then return Text.SET_ROW_BANE end
+    if slot.key == "curse" then return Text.SET_ROW_CURSE end
+    return KeyName(slot.keys[1])
+end
+
+local function FamilyIcon(slot)
+    for _, key in ipairs(slot.keys) do
+        local id = Core.HighestKnown(Core.SPELLS[key], ns.Buttons.IsKnown)
+        if id then return Plain(C_Spell.GetSpellTexture, id) end
+    end
+    return Plain(C_Spell.GetSpellTexture, Core.SPELLS[slot.keys[1]][1])
+end
+
+local function FamilySource()
+    local timers = function() return db().timers end
+    return {
+        rows = #Core.ENEMY_SLOTS,
+        entries = function()
+            local entries = {}
+            for i, slot in ipairs(Core.OrderEnemySlots(timers().trackOrder)) do
+                local off = timers().trackOff[slot.key] == true
+                local known = Core.EnemySlotKnown(slot, FamilyKnown)
+                entries[i] = { name = FamilyName(slot), icon = FamilyIcon(slot), known = known and not off,
+                    tag = off and Text.SET_MENU_OFF or (not known and Text.SET_MENU_UNLEARNED) or nil }
+            end
+            return entries
+        end,
+        move = function(from, to)
+            ns.SetSetting("timers.trackOrder", Core.MoveEnemySlot(timers().trackOrder, from, to))
+        end,
+        toggle = function(place)
+            local slot = Core.OrderEnemySlots(timers().trackOrder)[place]
+            if not slot or not Core.EnemySlotKnown(slot, FamilyKnown) then return end
+            ns.SetSetting("timers.trackOff." .. slot.key, (timers().trackOff[slot.key] ~= true) or nil)
+        end,
+    }
+end
+
+local function NewSection(content, title, on, path, bodyHeight)
+    local section = CreateFrame("Frame", nil, content)
+    section:SetWidth(PAGE_WIDTH)
+    Heading(section, title, HEAD_TOP)
+    Check(section, SHOW_X, HEAD_TOP + 7, Text.SET_SHOW, on, function(value) ns.SetSetting(path, value) end, 60)
+    local body = CreateFrame("Frame", nil, section)
+    body:SetPoint("TOPLEFT", section, "TOPLEFT", 0, -HEAD_ROW)
+    body:SetSize(PAGE_WIDTH, bodyHeight)
+    section.body, section.on, section.bodyHeight = body, on, bodyHeight
+    return section
+end
+
+local function OffsetSliders(body, y, low, high, get, set)
+    Slider(body, 5, y, Text.SET_MENU_SHIFT_X, low, high, 1, function() return get("x") end,
+        function(value) set("x", value) end)
+    Slider(body, SLIDER_RIGHT, y, Text.SET_MENU_SHIFT_Y, low, high, 1, function() return get("y") end,
+        function(value) set("y", value) end)
+end
+
+local function ReminderSection(content, title, saved, clamp, low, high)
+    local look = function() return db().timers[saved] end
+    local section = NewSection(content, title, function() return look().on ~= false end, "timers." .. saved .. ".on",
+        -SLIDER_TOP + (clamp and SECTION_ROW or 0) + 30)
+    local body = section.body
+    Slider(body, 5, SLIDER_TOP, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
+        function() return Core.ClampScale(look().scale) end,
+        function(value) ns.SetSetting("timers." .. saved .. ".scale", Core.ClampScale(value)) end, "percent")
+    Slider(body, SLIDER_RIGHT, SLIDER_TOP, Text.SET_BAR_OPACITY, Core.OPACITY_MIN, Core.OPACITY_MAX, Core.OPACITY_STEP,
+        function() return Core.ClampOpacity(look().opacity) end,
+        function(value) ns.SetSetting("timers." .. saved .. ".opacity", Core.ClampOpacity(value)) end, "percent")
+    if not clamp then return section end
+    local defaults = Core.DEFAULTS.timers[saved]
+    OffsetSliders(body, SLIDER_TOP - SECTION_ROW, low, high, function(key) return clamp(look()[key], defaults[key]) end,
+        function(key, value) ns.SetSetting("timers." .. saved .. "." .. key, clamp(value)) end)
+    return section
+end
+
+local function DebuffsPage(page)
+    local timers = function() return db().timers end
+    local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+    scroll:SetSize(PAGE_WIDTH, PAGE_HEIGHT)
+    if scroll.ScrollBar then
+        scroll.ScrollBar:ClearAllPoints()
+        scroll.ScrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", SCROLL_BAR_X, -16)
+        scroll.ScrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", SCROLL_BAR_X, 16)
+    end
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(PAGE_WIDTH, PAGE_HEIGHT)
+    scroll:SetScrollChild(content)
+
+    local multi = NewSection(content, Text.SET_MULTI_ON, function() return timers().multiOn ~= false end,
+        "timers.multiOn", -SLIDER_TOP + 30)
+    Slider(multi.body, 5, SLIDER_TOP, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
+        function() return Core.TimerScale(timers(), "multi") end, function(value) ns.Timers.SetScale("multi", value) end,
+        "percent")
+    Dropdown(multi.body, RIGHT_COLUMN, 0, Text.SET_TIMER_GROWS, GROWTH,
         function() return timers().grow.multi == "down" and "down" or "up" end, function(value)
             ns.SetSetting("timers.grow.multi", value)
-        end, 105), multiOn)
-    GreyedBy(Slider(page, 5, -240, Text.SET_TIMER_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, 1,
-        function() return Core.TimerScale(timers(), "multi") end, function(value) ns.Timers.SetScale("multi", value) end,
-        "percent"), multiOn)
-    GreyLabel(Heading(page, Text.SET_TRACK, -280), multiOn)
-    for i, slot in ipairs(Core.ENEMY_SLOTS) do
-        local name = slot.key == "bane" and Text.SET_ROW_BANE or slot.key == "curse" and Text.SET_ROW_CURSE
-            or KeyName(slot.keys[1])
-        GreyedBy(Check(page, ((i - 1) % 3) * TRACK_STEP, -294 - math.floor((i - 1) / 3) * 24, name,
-            function() return timers().trackOff[slot.key] ~= true end, function(on)
-                ns.SetSetting("timers.trackOff." .. slot.key, (not on) or nil)
-            end), multiOn)
+        end, 105)
+
+    local target = ReminderSection(content, Text.SET_MISSING_TARGET, "targetReminder")
+    local plate = ReminderSection(content, Text.SET_MISSING_PLATE, "plateReminder", Core.ClampPlateOffset,
+        Core.PLATE_OFFSET_MIN, Core.PLATE_OFFSET_MAX)
+
+    local track = CreateFrame("Frame", nil, content)
+    track:SetSize(PAGE_WIDTH, TRACK_HEIGHT)
+    Heading(track, Text.SET_TRACK, HEAD_TOP)
+    Label(track, Text.SET_ORDER_HELP, 0, HEAD_TOP - 16, "GameFontDisableSmall")
+    OrderList(track, 0, HEAD_TOP - 32, PAGE_WIDTH - 10, #Core.ENEMY_SLOTS * ROW_HEIGHT, FamilySource())
+
+    local layout = {}
+    function layout:Refresh()
+        local y = 0
+        for _, section in ipairs({ multi, target, plate }) do
+            local on = section.on() == true
+            section.body:SetShown(on)
+            local height = HEAD_ROW + (on and section.bodyHeight or 0)
+            section:ClearAllPoints()
+            section:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+            section:SetHeight(height)
+            y = y + height + SECTION_SPACE
+        end
+        track:ClearAllPoints()
+        track:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+        content:SetHeight(y + TRACK_HEIGHT)
     end
+    controls[#controls + 1] = layout
 end
 
 local function AlertRow(page, key, y)
@@ -703,7 +840,7 @@ local function BarSliders(page, y, saved)
         function() return Core.ClampOpacity(db()[saved].opacity) end, function(value)
             ns.SetSetting(saved .. ".opacity", Core.ClampOpacity(value))
         end, "percent")
-    Slider(page, 5, y, Text.SET_BAR_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, 1,
+    Slider(page, 5, y, Text.SET_BAR_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
         function() return Core.ClampScale(db()[saved].scale) end, function(value)
             ns.SetSetting(saved .. ".scale", Core.ClampScale(value))
         end, "percent")
@@ -873,7 +1010,8 @@ local PAGES = {
     { Text.SETTINGS_TAB_SPHERE, "INV_Misc_Gem_Amethyst_02", SpherePage },
     { Text.SETTINGS_TAB_BUTTONS, "Trade_Engineering", ButtonsPage },
     { Text.SETTINGS_TAB_MENUS, "INV_Misc_Book_01", MenusPage },
-    { Text.SETTINGS_TAB_TIMERS, "Spell_Shadow_Cripple", TimersPage },
+    { Text.SETTINGS_TAB_DEBUFFS, Core.SPELLS.baneOfAgony[1], DebuffsPage },
+    { Text.SETTINGS_TAB_CONTROLS, "Spell_Shadow_Cripple", ControlsPage },
     { Text.SETTINGS_TAB_ALERTS, "INV_Misc_Bell_01", AlertsPage },
     { Text.SETTINGS_TAB_REMINDERS, "INV_Misc_PocketWatch_01", RemindersPage },
     { Text.SETTINGS_TAB_SPEECH, "ability_warrior_rallyingcry", SpeechPage },
@@ -999,7 +1137,7 @@ local function Create()
         local tab = CreateFrame("CheckButton", nil, frame)
         tab:SetSize(32, 32)
         if i == 1 then
-            tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -32, -65)
+            tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -32, TAB_TOP)
         else
             tab:SetPoint("TOPLEFT", tabs[i - 1], "BOTTOMLEFT", 0, -TAB_GAP)
         end
@@ -1007,7 +1145,11 @@ local function Create()
         art:SetSize(64, 64)
         art:SetTexture(TAB_ART)
         art:SetPoint("TOPLEFT", -3, 11)
-        tab:SetNormalTexture("Interface\\Icons\\" .. def[2])
+        if type(def[2]) == "number" then
+            tab:SetNormalTexture(Plain(C_Spell.GetSpellTexture, def[2]) or "Interface\\Icons\\INV_Misc_QuestionMark")
+        else
+            tab:SetNormalTexture("Interface\\Icons\\" .. def[2])
+        end
         tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
         tab:GetHighlightTexture():SetBlendMode("ADD")
         tab:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight")

@@ -63,6 +63,7 @@ Core.SPELLS = {
     corruption = { 172, 6222, 6223, 7648, 11671, 11672, 25311 },
     immolate = { 348, 707, 1094, 2941, 11665, 11667, 11668, 25309 },
     siphonLife = { 18265, 18879, 18880, 18881 },
+    demonicBrand = { 1293696 },
 }
 
 Core.CURSE_KEYS = { "curseOfWeakness", "baneOfAgony", "curseOfTongues", "curseOfExhaustion", "curseOfElements",
@@ -70,6 +71,14 @@ Core.CURSE_KEYS = { "curseOfWeakness", "baneOfAgony", "curseOfTongues", "curseOf
 Core.CURSE_IDS = {}
 for _, key in ipairs(Core.CURSE_KEYS) do
     for _, id in ipairs(Core.SPELLS[key]) do Core.CURSE_IDS[#Core.CURSE_IDS + 1] = id end
+end
+
+-- curses that Amplify Curse make stronger, AMPLIFY_IDS is every rank id
+Core.AMPLIFY_LIST = { "curseOfWeakness", "baneOfAgony", "curseOfExhaustion" }
+Core.AMPLIFY_KEYS, Core.AMPLIFY_IDS = {}, {}
+for _, key in ipairs(Core.AMPLIFY_LIST) do
+    Core.AMPLIFY_KEYS[key] = true
+    for _, id in ipairs(Core.SPELLS[key]) do Core.AMPLIFY_IDS[id] = true end
 end
 
 Core.PLAIN_CURSE_KEYS = { "curseOfWeakness", "curseOfTongues", "curseOfExhaustion", "curseOfElements", "curseOfRecklessness" }
@@ -85,11 +94,13 @@ function Core.SpellIdSet(keys)
 end
 
 Core.FOCUS_ICONS = {
-    { key = "banish", spell = "banish", row = 1, fit = "banish", switch = "banish" },
+    { key = "banish", spell = "banish", row = 1, fit = "banish", switch = "banish", flash = "always" },
     { key = "seduction", spell = "seduction", row = 1, fit = "seduction", pet = true, switch = "seduction" },
-    { key = "fear", spell = "fear", row = 1, fit = "fear", switch = "fear" },
-    { key = "curseOfRecklessness", spell = "curseOfRecklessness", row = 1, fit = "fear", rankOne = true, switch = "fear" },
-    { key = "curseOfWeakness", spell = "curseOfWeakness", row = 1, fit = "fear", rankOne = true, switch = "fear" },
+    { key = "fear", spell = "fear", row = 1, fit = "fear", switch = "fear", flash = "always" },
+    { key = "curseOfRecklessness", spell = "curseOfRecklessness", row = 1, fit = "fear", rankOne = true, switch = "fear",
+        gates = { "fear" } },
+    { key = "curseOfWeakness", spell = "curseOfWeakness", row = 1, fit = "fear", rankOne = true, switch = "fear",
+        gates = { "fear", "curseOfRecklessness" } },
     { key = "deathCoil", spell = "deathCoil", row = 1, fit = "fear", switch = "deathCoil" },
 }
 
@@ -111,6 +122,11 @@ Core.FOCUS_TIME_SIZE = 16
 Core.FOCUS_RANGE_ALPHA, Core.FOCUS_RANGE_SECONDS = 0.5, 0.2
 Core.FOCUS_ICON_BY_KEY = {}
 for _, def in ipairs(Core.FOCUS_ICONS) do Core.FOCUS_ICON_BY_KEY[def.key] = def end
+
+function Core.FocusFlashOn(def, casted)
+    if def.gates then return false end
+    return def.flash == "always" or casted == true
+end
 
 Core.FOCUS_MAX_PER_ROW = 0
 do
@@ -160,22 +176,50 @@ function Core.FocusIconFits(key, typeID)
     return true
 end
 
+Core.DEMONIC_BRAND_TALENT = 1293695
+
+Core.SEARING_PAIN = 5676
+Core.DEMONIC_BRAND_SECONDS = 6
 Core.ENEMY_SLOTS = {
     { key = "bane", keys = Core.BANE_KEYS },
     { key = "corruption", keys = { "corruption" } },
     { key = "immolate", keys = { "immolate" } },
     { key = "siphonLife", keys = { "siphonLife" } },
+    { key = "demonicBrand", keys = { "demonicBrand" }, talent = Core.DEMONIC_BRAND_TALENT },
     { key = "curse", keys = Core.PLAIN_CURSE_KEYS },
 }
 
+function Core.OrderEnemySlots(saved)
+    local entries, byKey = {}, {}
+    for i, slot in ipairs(Core.ENEMY_SLOTS) do
+        entries[i] = { keys = { slot.key } }
+        byKey[slot.key] = slot
+    end
+    local ordered = {}
+    for i, entry in ipairs(Core.OrderMenu(entries, saved)) do ordered[i] = byKey[entry.keys[1]] end
+    return ordered
+end
+
+function Core.MoveEnemySlot(saved, from, to)
+    local entries = {}
+    for i, slot in ipairs(Core.ENEMY_SLOTS) do entries[i] = { keys = { slot.key } } end
+    return Core.MoveInOrder(entries, saved, from, to)
+end
+
+-- one slot, is it known
+function Core.EnemySlotKnown(slot, isKnown)
+    if slot.talent then return isKnown(slot.talent) == true end
+    for _, key in ipairs(slot.keys) do
+        if Core.HighestKnown(Core.SPELLS[key], isKnown) then return true end
+    end
+    return false
+end
+
 -- the columns which charactor knows a spell for
-function Core.EnemySlotsKnown(isKnown, everything, off)
+function Core.EnemySlotsKnown(isKnown, everything, off, order)
     local slots = {}
-    for _, slot in ipairs(Core.ENEMY_SLOTS) do
-        local known = everything
-        for _, key in ipairs(slot.keys) do
-            if Core.HighestKnown(Core.SPELLS[key], isKnown) then known = true end
-        end
+    for _, slot in ipairs(Core.OrderEnemySlots(order)) do
+        local known = everything or Core.EnemySlotKnown(slot, isKnown)
         if known and not (off and off[slot.key]) then slots[#slots + 1] = slot end
     end
     return slots
@@ -207,6 +251,17 @@ Core.FOCUS_MACROS = { fear = "NOG Fear", banish = "NOG Banish", enslaveDemon = "
 Core.STONE_MACRO_KEYS = { "healthstone" }
 Core.STONE_MACROS = { healthstone = "NOG Healthstone" }
 Core.STONE_MACRO_SPELLS = { healthstone = "createHealthstone" }
+Core.CURSE_MACRO_KEYS = Core.AMPLIFY_LIST
+Core.CURSE_MACROS = { curseOfWeakness = "NOG Weakness", baneOfAgony = "NOG Agony", curseOfExhaustion = "NOG Exhaustion" }
+
+function Core.AmplifyCast(amplifyName, curseName)
+    if not amplifyName then return "/cast " .. curseName end
+    return "/cast " .. amplifyName .. "\n/cast " .. curseName
+end
+
+function Core.AmplifyMacroBody(amplifyName, curseName)
+    return "#showtooltip " .. curseName .. "\n" .. Core.AmplifyCast(amplifyName, curseName)
+end
 
 -- macro text for cast on focus
 function Core.FocusMacroBody(spellName, focus)
@@ -376,6 +431,62 @@ function Core.PickSpell(keys, isKnown)
         if id then return id, keys[i] end
     end
     return nil, nil
+end
+
+function Core.SteedRank(spellID)
+    for rank, key in ipairs({ "felsteed", "dreadsteed" }) do
+        for _, id in ipairs(Core.SPELLS[key]) do
+            if id == spellID then return rank end
+        end
+    end
+    return nil
+end
+
+-- mounts the button pick from: favourites, else best steed, else all mount. usable mount first
+function Core.MountPool(mounts, bookSteed)
+    local bookRank = bookSteed and Core.SteedRank(bookSteed.spellID) or 0
+    local function Gather(needUsable)
+        local favourites, any, steed, best = {}, {}, nil, 0
+        if bookRank > 0 and (bookSteed.usable or not needUsable) then
+            steed, best = bookSteed, bookRank - 0.5
+        end
+        for _, mount in ipairs(mounts) do
+            if mount.collected and not mount.hidden and (mount.usable or not needUsable) then
+                any[#any + 1] = mount
+                if mount.favourite then favourites[#favourites + 1] = mount end
+                local rank = Core.SteedRank(mount.spellID)
+                if rank and rank > best then steed, best = mount, rank end
+            end
+        end
+        if #favourites > 0 then return favourites end
+        if steed then return { steed } end
+        return any
+    end
+    local pool = Gather(true)
+    if #pool == 0 then pool = Gather(false) end
+    return pool
+end
+
+function Core.MountInPool(pool, spellID)
+    for _, mount in ipairs(pool) do
+        if mount.spellID == spellID then return mount end
+    end
+    return nil
+end
+
+function Core.NextMount(pool, avoid, roll)
+    local choices = {}
+    for _, mount in ipairs(pool) do
+        if mount.spellID ~= avoid then choices[#choices + 1] = mount end
+    end
+    if #choices == 0 then return pool[1] end
+    return choices[roll(#choices)]
+end
+
+-- macro of mount button, name is nil then only dismount
+function Core.MountMacro(name)
+    if not name then return "/dismount [mounted]" end
+    return "/cast [nomounted] " .. name .. "\n/dismount [mounted]"
 end
 
 function Core.CurseKey(spellID)

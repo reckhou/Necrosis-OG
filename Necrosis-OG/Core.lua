@@ -23,7 +23,7 @@ local Core = {}
 ns.Core = Core
 
 Core.DEFAULTS = {
-    version = 25,
+    version = 26,
     locked = false,
     tooltips = true,
     skin = "Rose",
@@ -38,7 +38,7 @@ Core.DEFAULTS = {
         rotation = 180,
         spacing = 1,
         distance = 1,
-        buttonSize = 1.05,
+        buttonSize = 1.1,
         clicks = { left = "demonSkin", middle = "unendingBreath", ctrlLeft = "eyeOfKilrogg", shiftLeft = "ritualOfSummoning" },
     },
     buttons = {
@@ -80,6 +80,9 @@ Core.DEFAULTS = {
         focusOn = true,
         multiOn = true,
         trackOff = {},
+        trackOrder = {},
+        targetReminder = { on = false, scale = 120, opacity = 65, x = 159, y = -166 },
+        plateReminder = { on = true, scale = 100, opacity = 50, x = 0, y = -10 },
         focusOff = {},
         plateSettings = {},
         lastInSlot = {},
@@ -151,6 +154,40 @@ function Core.ApplyDefaults(saved, defaults)
         elseif type(default) == "table" then
             Core.ApplyDefaults(value, default)
         end
+    end
+    return saved
+end
+
+-- round saved field to the step
+local function RoundField(table_, key, step)
+    if type(table_) == "table" and Core.IsNumber(table_[key]) then table_[key] = Core.RoundToStep(table_[key], step) end
+end
+
+-- one step for each old version, take table from N to N + 1
+Core.MIGRATIONS = {
+    -- 25 -> 26: size sliders have new step, so round saved values
+    [25] = function(saved)
+        RoundField(saved.sphere, "scale", Core.SCALE_STEP)
+        RoundField(saved.sphere, "buttonSize", Core.BUTTON_SIZE_STEP)
+        RoundField(saved.sphere, "distance", Core.DISTANCE_STEP)
+        if type(saved.timers) == "table" then
+            RoundField(saved.timers.scales, "focus", Core.SCALE_STEP)
+            RoundField(saved.timers.scales, "multi", Core.SCALE_STEP)
+            RoundField(saved.timers.targetReminder, "scale", Core.SCALE_STEP)
+            RoundField(saved.timers.plateReminder, "scale", Core.SCALE_STEP)
+        end
+        RoundField(saved.reminderBar, "scale", Core.SCALE_STEP)
+        RoundField(saved.procBar, "scale", Core.SCALE_STEP)
+    end,
+}
+
+-- bring old saved table to the newest version, run before ApplyDefaults
+function Core.Migrate(saved)
+    if type(saved) ~= "table" or not Core.IsNumber(saved.version) then return saved end
+    while saved.version < Core.DEFAULTS.version do
+        local step = Core.MIGRATIONS[saved.version]
+        if step then step(saved) end
+        saved.version = saved.version + 1
     end
     return saved
 end
@@ -277,7 +314,7 @@ end
 Core.SOUL_SHARD_ITEM = 6265
 Core.HEARTHSTONE_ITEM = 6948
 Core.SPHERE_SIZE = 58
-Core.SCALE_MIN, Core.SCALE_MAX = 50, 200
+Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP = 50, 200, 10
 Core.SHARD_COUNT_MAX = 32
 
 local function isNumber(value) return type(value) == "number" and value == value end
@@ -285,7 +322,7 @@ Core.IsNumber = isNumber
 
 function Core.ClampScale(scale, fallback)
     if not isNumber(scale) then return fallback or 100 end
-    return math.max(Core.SCALE_MIN, math.min(Core.SCALE_MAX, scale))
+    return Core.RoundToStep(math.max(Core.SCALE_MIN, math.min(Core.SCALE_MAX, scale)), Core.SCALE_STEP)
 end
 
 function Core.ClampSphereScale(scale) return Core.ClampScale(scale, Core.DEFAULTS.sphere.scale) end

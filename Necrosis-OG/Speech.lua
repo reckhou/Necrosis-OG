@@ -32,7 +32,7 @@ local IsSecret, Plain = ns.Game.IsSecret, ns.Game.Plain
 local function TargetName(kind)
     if kind == "friend" then
         if Plain(UnitExists, "target") == true and Plain(UnitCanAssist, "player", "target") == true
-            and Plain(UnitIsDeadOrGhost, "target") == false then
+            and Plain(UnitIsDeadOrGhost, "target") == false and not ns.Stones.TargetIsNotPlayer() then
             return Plain(UnitName, "target")
         end
         return Plain(UnitName, "player")
@@ -82,7 +82,7 @@ function Speech.Speak(subject, targetKind)
         return
     end
     local now = GetTime()
-    if spokeAt[subject] and now - spokeAt[subject] < Core.SPEECH_COOLDOWN then
+    if spokeAt[subject] and now - spokeAt[subject] < Core.SpeechCooldown(subject) then
         return
     end
     if IsCasting() then

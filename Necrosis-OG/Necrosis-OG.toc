@@ -3,7 +3,7 @@
 ## Notes: One classic sphere. The essential Warlock tool.
 ## Category: Class
 ## IconTexture: Interface\AddOns\Necrosis-OG\Media\UI\AddonIcon
-## Version: 1.0.2
+## Version: 1.1.0
 ## X-License: GPL-2.0-or-later
 ## X-Website: https://github.com/reckhou/Necrosis-OG
 ## SavedVariablesPerCharacter: NecrosisOGDB
@@ -57,6 +57,7 @@ Menus.lua
 Shards.lua
 Timers.lua
 Debuffs.lua
+MissingDebuffs.lua
 Alerts.lua
 ProcAlerts.lua
 Mount.lua
