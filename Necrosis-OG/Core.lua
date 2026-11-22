@@ -23,7 +23,7 @@ local Core = {}
 ns.Core = Core
 
 Core.DEFAULTS = {
-    version = 26,
+    version = 27,
     locked = false,
     tooltips = true,
     skin = "Rose",
@@ -83,6 +83,7 @@ Core.DEFAULTS = {
         trackOrder = {},
         targetReminder = { on = false, scale = 120, opacity = 65, x = 159, y = -166 },
         plateReminder = { on = true, scale = 100, opacity = 50, x = 0, y = -10 },
+        barHighlight = { on = true },
         focusOff = {},
         plateSettings = {},
         lastInSlot = {},
@@ -121,6 +122,7 @@ Core.FIRST_RUN = {
         utility = { "lifeTap", "drainSoul", "drainMana", "banish", "fear", "howlOfTerror" },
         curses = {},
     },
+    trackOff = { "immolate" },
 }
 
 local function copy(value)
@@ -179,6 +181,9 @@ Core.MIGRATIONS = {
         RoundField(saved.reminderBar, "scale", Core.SCALE_STEP)
         RoundField(saved.procBar, "scale", Core.SCALE_STEP)
     end,
+    [26] = function(saved)
+        if type(saved.speech) == "table" then Core.DropOldSpeechDefaults(saved.speech.sets) end
+    end,
 }
 
 -- bring old saved table to the newest version, run before ApplyDefaults
@@ -199,6 +204,7 @@ function Core.NewSettings()
     for menu, keys in pairs(Core.FIRST_RUN.menuOff) do
         for _, key in ipairs(keys) do db.buttons.menuOff[menu][key] = true end
     end
+    for _, key in ipairs(Core.FIRST_RUN.trackOff) do db.timers.trackOff[key] = true end
     db.welcomed = false
     return db
 end

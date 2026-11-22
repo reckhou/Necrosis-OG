@@ -154,15 +154,18 @@ local function GreyedBy(widget, on)
 end
 
 -- dropdown list of the game
-local function Dropdown(page, x, y, text, options, get, set, width)
+local function Dropdown(page, x, y, text, options, get, set, width, maxRows)
     local label = text and Label(page, text, x, y)
     local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
     dropdown:SetWidth(width or 150)
     dropdown.pageLabel = label
     dropdown:SetPoint("TOPLEFT", page, "TOPLEFT", x, text and y - 14 or y)
     dropdown:SetupMenu(function(_, root)
-        if root.SetScrollMode then root:SetScrollMode(320) end
-        for _, option in ipairs(type(options) == "function" and options() or options) do
+        local choices = type(options) == "function" and options() or options
+        if not maxRows or #choices > maxRows then
+            root:SetScrollMode(maxRows and 20 * maxRows or 320)
+        end
+        for _, option in ipairs(choices) do
             root:CreateRadio(option[2], function(value) return value == get() end,
                 function(value) Changed(set)(value) end, option[1])
         end
@@ -464,13 +467,17 @@ local function MacroIcon(page, x, y, key)
     icon:SetScript("OnClick", function() ns.Buttons.PickupFocusMacro(key) end)
     local spells = Core.SPELLS[Core.STONE_MACRO_SPELLS[key] or key]
     ns.Tips.Attach(icon, function(tooltip)
-        ns.Tips.Title(tooltip, SpellName(spells[1]) or key)
+        ns.Tips.Title(tooltip, key == "hearthstone" and Text.HEARTHSTONE or SpellName(spells[1]) or key)
         ns.Tips.Line(tooltip, Text.TIP_MACRO_DRAG)
         if Core.CURSE_MACROS[key] then
             ns.Tips.Line(tooltip, string.format(Text.ACT_THEN, SpellName(Core.SPELLS.amplifyCurse[1]) or "?", SpellName(spells[1]) or key))
         end
     end, "ANCHOR_RIGHT", true)
     function icon:Refresh()
+        if key == "hearthstone" then
+            self.texture:SetTexture(Plain(C_Item.GetItemIconByID, Core.HEARTHSTONE_ITEM))
+            return
+        end
         self.texture:SetTexture(Plain(C_Spell.GetSpellTexture, spells[1]))
         self.texture:SetDesaturated(Core.HighestKnown(spells, Core.PET_CONTROL_SPELLS[key] and ns.PetKnows or ns.Buttons.IsKnown) == nil)
     end
@@ -529,6 +536,7 @@ local function GeneralPage(page)
     MacroIcon(page, 94, -64, "enslaveDemon")
     MacroIcon(page, 124, -64, "healthstone")
     for i, key in ipairs(Core.CURSE_MACRO_KEYS) do MacroIcon(page, 124 + 30 * i, -64, key) end
+    MacroIcon(page, 154 + 30 * #Core.CURSE_MACRO_KEYS, -64, "hearthstone")
     table.insert(ns.onSpellsChanged, function() seduction:Refresh() end)
 
     Heading(page, Text.SET_HEAD_DISPLAY, -106)
@@ -800,6 +808,8 @@ local function DebuffsPage(page)
     local target = ReminderSection(content, Text.SET_MISSING_TARGET, "targetReminder")
     local plate = ReminderSection(content, Text.SET_MISSING_PLATE, "plateReminder", Core.ClampPlateOffset,
         Core.PLATE_OFFSET_MIN, Core.PLATE_OFFSET_MAX)
+    local glow = NewSection(content, Text.SET_BAR_HIGHLIGHT, function() return timers().barHighlight.on ~= false end,
+        "timers.barHighlight.on", 0)
 
     local track = CreateFrame("Frame", nil, content)
     track:SetSize(PAGE_WIDTH, TRACK_HEIGHT)
@@ -810,7 +820,7 @@ local function DebuffsPage(page)
     local layout = {}
     function layout:Refresh()
         local y = 0
-        for _, section in ipairs({ multi, target, plate }) do
+        for _, section in ipairs({ multi, target, plate, glow }) do
             local on = section.on() == true
             section.body:SetShown(on)
             local height = HEAD_ROW + (on and section.bodyHeight or 0)
@@ -944,6 +954,7 @@ local selectedPreset = {}
 
 local function SubjectName(subject)
     if subject == "soulstone" then return Text.SET_BUTTON_SOULSTONE end
+    if subject == "hearthstone" then return Text.HEARTHSTONE end
     if subject == "mount" then return Text.SET_BUTTON_MOUNT end
     return SpellName(Core.SPELLS[subject][1]) or subject
 end
@@ -974,7 +985,7 @@ local function SpeechPage(page)
             options[i] = { i, string.format(Text.SET_SPEECH_PRESET_NAME, i, Core.PresetName(set, 40, Text.SET_SPEECH_EMPTY)) }
         end
         return options
-    end, CurrentPreset, function(value) selectedPreset[selectedSubject] = value end)
+    end, CurrentPreset, function(value) selectedPreset[selectedSubject] = value end, nil, 10)
     PushButton(page, 158, -140, Text.SET_SPEECH_ADD, function()
         local index = ns.Speech.AddSet(selectedSubject)
         if index then

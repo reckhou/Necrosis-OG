@@ -738,6 +738,9 @@ end
 local SHOW_TOOLTIP = "#showtooltip\n"
 
 local function MacroText(key)
+    if key == "hearthstone" then
+        return Core.STONE_MACROS[key], "#showtooltip item:" .. Core.HEARTHSTONE_ITEM .. "\n/click NecrosisOGBinding_hearthstone"
+    end
     if Core.STONE_MACROS[key] then
         local text = ns.Bindings and ns.Bindings.StoneMacro(key, Core.MACRO_LIMIT - #SHOW_TOOLTIP)
         if not text or text == "" then return nil end

@@ -106,8 +106,14 @@ local function Create(key, header)
     elseif def.missing == "demon" then
         ns.Menus.AttachDemonPicker(button, header)
         button:HookScript("OnAttributeChanged", function(_, name, value)
-            if name == "againart" and type(value) == "string" then DemonPicture(item, value) end
+            if name == "againart" and type(value) == "string" then
+                DemonPicture(item, value)
+                button.demonKey = Core.DemonKeyOfArt(value) or button.demonKey
+            end
         end)
+        button.speechSubject = function(mouse)
+            if mouse == "RightButton" and button.spellID then return button.demonKey, nil end
+        end
     end
     buttons[key] = button
 end
@@ -539,6 +545,7 @@ local function Refresh()
         local item = button.item
         local id, spell, kind = ChooseSpell(def)
         button.spellID = id
+        if def.missing == "demon" then button.demonKey = spell end
         local actions = ActionsFor(button, def, id, spell, kind)
         if def.missing ~= "demon" then MirrorRight(actions) end
         Buttons.SetActions(button, actions)

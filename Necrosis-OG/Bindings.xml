@@ -21,6 +21,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 <Bindings>
     <Binding name="CLICK NecrosisOGBinding_healthstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_soulstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_hearthstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_mount:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_lifeTap:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_banish:LeftButton" category="BINDING_HEADER_NECROSISOG" />

@@ -182,11 +182,11 @@ Core.SEARING_PAIN = 5676
 Core.DEMONIC_BRAND_SECONDS = 6
 Core.ENEMY_SLOTS = {
     { key = "bane", keys = Core.BANE_KEYS },
-    { key = "corruption", keys = { "corruption" } },
-    { key = "immolate", keys = { "immolate" } },
-    { key = "siphonLife", keys = { "siphonLife" } },
-    { key = "demonicBrand", keys = { "demonicBrand" }, talent = Core.DEMONIC_BRAND_TALENT },
     { key = "curse", keys = Core.PLAIN_CURSE_KEYS },
+    { key = "corruption", keys = { "corruption" } },
+    { key = "siphonLife", keys = { "siphonLife" } },
+    { key = "immolate", keys = { "immolate" } },
+    { key = "demonicBrand", keys = { "demonicBrand" }, talent = Core.DEMONIC_BRAND_TALENT },
 }
 
 function Core.OrderEnemySlots(saved)
@@ -232,6 +232,25 @@ function Core.EnemySlotOfSpell(spellID)
     return nil
 end
 
+Core.BAR_GLOW_STEP = 100
+Core.BAR_GLOW_SIZE = 1.4
+
+-- start offset and widths of the chain for one place
+function Core.BarGlowChain(place)
+    local widths = {}
+    for i = 1, place - 1 do widths[i] = Core.BAR_GLOW_STEP end
+    widths[place] = place * Core.BAR_GLOW_STEP
+    return -(place - 1) * Core.BAR_GLOW_STEP, widths
+end
+
+function Core.BarGlowOffset(place, isOn)
+    local x, widths = Core.BarGlowChain(place)
+    for i, width in ipairs(widths) do
+        if isOn(i) then x = x + width end
+    end
+    return x
+end
+
 function Core.EnemySlotSpellKey(slotKey, spellID)
     for _, slot in ipairs(Core.ENEMY_SLOTS) do
         if slot.key == slotKey then
@@ -248,8 +267,8 @@ end
 Core.FOCUS_MACRO_KEYS = { "fear", "banish", "enslaveDemon", "seduction" }
 Core.FOCUS_MACROS = { fear = "NOG Fear", banish = "NOG Banish", enslaveDemon = "NOG Subjugate", seduction = "NOG Seduction" }
 
-Core.STONE_MACRO_KEYS = { "healthstone" }
-Core.STONE_MACROS = { healthstone = "NOG Healthstone" }
+Core.STONE_MACRO_KEYS = { "healthstone", "hearthstone" }
+Core.STONE_MACROS = { healthstone = "NOG Healthstone", hearthstone = "NOG Hearthstone" }
 Core.STONE_MACRO_SPELLS = { healthstone = "createHealthstone" }
 Core.CURSE_MACRO_KEYS = Core.AMPLIFY_LIST
 Core.CURSE_MACROS = { curseOfWeakness = "NOG Weakness", baneOfAgony = "NOG Agony", curseOfExhaustion = "NOG Exhaustion" }
@@ -323,6 +342,13 @@ end
 function Core.DemonArt(key)
     for _, entry in ipairs(Core.DEMON_MENU) do
         if entry.demon and entry.keys[1] == key then return entry.art end
+    end
+    return nil
+end
+
+function Core.DemonKeyOfArt(art)
+    for _, entry in ipairs(Core.DEMON_MENU) do
+        if entry.demon and entry.art == art then return entry.keys[1] end
     end
     return nil
 end

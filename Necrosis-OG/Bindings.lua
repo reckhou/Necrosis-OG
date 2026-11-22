@@ -27,6 +27,7 @@ ns.Bindings = Bindings
 local entries = {
     { key = "healthstone", label = "BIND_HEALTHSTONE" },
     { key = "soulstone", label = "BIND_SOULSTONE" },
+    { key = "hearthstone", label = "ACT_HEARTHSTONE" },
     { key = "mount", label = "BIND_MOUNT" },
     { key = "lifeTap", spell = "lifeTap" },
     { key = "banish", spell = "banish" },
@@ -71,6 +72,10 @@ Buttons.OnCreate(function()
         local held = Stones.State()
         if held.soulstone and ns.Speech then ns.Speech.Speak("soulstone", "friend") end
     end)
+    buttons.hearthstone:SetScript("PreClick", function()
+        local subject = ns.Mount.HearthSpeechSubject()
+        if subject and ns.Speech then ns.Speech.Speak(subject) end
+    end)
     buttons.mount:SetScript("PreClick", function()
         if ns.Mount.WillSummon() and ns.Speech then
             ns.Speech.Speak("mount")
@@ -84,6 +89,8 @@ Buttons.OnRefresh(function()
         local actions
         if key == "healthstone" or key == "soulstone" then
             actions = { type1 = "macro", spell1 = false, macrotext1 = StoneMacro(key) }
+        elseif key == "hearthstone" then
+            actions = { type1 = "item", item1 = "item:" .. Core.HEARTHSTONE_ITEM }
         elseif key == "mount" then
             -- mount button pick, second press dismount
             actions = { type1 = "macro", spell1 = false, macrotext1 = ns.Mount.Macro() }

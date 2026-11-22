@@ -158,6 +158,13 @@ local function RefreshAll()
         item.wanted = (active[proc.key] or demoOn[proc.key] or ns.placing) == true
     end
     Bars.Layout(bar)
+    if ns.BarHighlight then
+        local glowing = {}
+        for _, proc in ipairs(PROCS) do
+            glowing[proc.key] = active[proc.key] and SwitchedOn(proc.key) and not glowSeen[proc.key] or nil
+        end
+        ns.BarHighlight.SetProcs(glowing)
+    end
 end
 
 local function SetActive(proc, on, silent)
@@ -244,6 +251,7 @@ local function OnGlow(spellID, on)
         if not on then return end
         glowSeen[proc.key] = true
         UpdateReading()
+        RefreshAll()
     end
     SetActive(proc, on)
 end

@@ -106,14 +106,21 @@ local function Wear()
     button.icon:SetDesaturated(grey and not ns.demo)
 end
 
-local function HearthLine()
+-- can use hearthstone now, and the note for the tooltip
+local function HearthState()
     local count = Plain(C_Item.GetItemCount, Core.HEARTHSTONE_ITEM)
-    if count == 0 then return Text.TIP_HEARTH_NONE end
-    local ok, start, duration = pcall(C_Container.GetItemCooldown, Core.HEARTHSTONE_ITEM)
-    if not ok or IsSecret(start) or IsSecret(duration) then return nil end
+    if count == 0 then return false, Text.TIP_HEARTH_NONE end
+    if not count then return false end
+    local ok, start, duration, enabled = pcall(C_Container.GetItemCooldown, Core.HEARTHSTONE_ITEM)
+    if not ok or IsSecret(start) or IsSecret(duration) or IsSecret(enabled) then return false end
+    if type(start) ~= "number" or type(duration) ~= "number" then return false end
     local left = Core.CooldownLeft(start, duration, GetTime())
-    if left > 0 then return string.format(Text.TIP_HEARTH_COOLING, Core.TimerText(left)) end
-    return nil
+    if left > 0 then return false, string.format(Text.TIP_HEARTH_COOLING, Core.TimerText(left)) end
+    return enabled == 1 and not InCombat()
+end
+
+function Mount.HearthSpeechSubject()
+    if HearthState() then return "hearthstone" end
 end
 
 local function Tooltip(tooltip)
@@ -125,7 +132,8 @@ local function Tooltip(tooltip)
     if not mounted and pick then
         ns.Tips.Note(tooltip, pick.favourite and Text.TIP_MOUNT_FAVOURITE or Text.TIP_MOUNT_NO_FAVOURITE)
     end
-    ns.Tips.Note(tooltip, HearthLine())
+    local _, hearthNote = HearthState()
+    ns.Tips.Note(tooltip, hearthNote)
 end
 
 -- macro for left click, key binding use it too
@@ -155,7 +163,8 @@ Buttons.OnCreate(function(sphere)
     ns.Rings.Attach(button, button, "MountButton")
     button.tooltip = Tooltip
     button.speechSubject = function(mouse)
-        if mouse ~= "RightButton" and Mount.WillSummon() then return "mount", nil end
+        if mouse == "RightButton" then return Mount.HearthSpeechSubject() end
+        if Mount.WillSummon() then return "mount", nil end
     end
     Buttons.AddSlot("mount", button)
 

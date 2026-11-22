@@ -428,6 +428,11 @@ local function CreateMenu(key, sphere, header)
     ns.Rings.Attach(button, button, def.art)
     button.cd = NewCooldown(button, Core.BUTTON_SIZE)
     button.tooltip = MenuTooltip(key)
+    if key == "demons" then
+        button.speechSubject = function(mouse)
+            if mouse == "RightButton" and LastDemon() then return ns.db.buttons.lastDemon, nil end
+        end
+    end
 
     local menu = CreateFrame("Frame", def.menuName, button, "SecureHandlerBaseTemplate")
     menu:SetSize(1, 1)

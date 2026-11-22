@@ -75,6 +75,16 @@ local function IsCasting()
     return false
 end
 
+-- player is moving or fall, cast not possible
+local function CannotCastNow(subject)
+    local speed = Plain(GetUnitSpeed, "player")
+    return Core.SpeechBlocked(subject, {
+        moving = type(speed) == "number" and speed > 0,
+        falling = Plain(IsFalling) == true,
+        mounted = Plain(IsMounted) == true,
+    })
+end
+
 -- speak line for subject, targetKind is nil, "target" or "friend"
 function Speech.Speak(subject, targetKind)
     local settings = ns.db.speech
@@ -85,7 +95,7 @@ function Speech.Speak(subject, targetKind)
     if spokeAt[subject] and now - spokeAt[subject] < Core.SpeechCooldown(subject) then
         return
     end
-    if IsCasting() then
+    if IsCasting() or CannotCastNow(subject) then
         return
     end
     local set = Core.SpeechPromo(subject, Text)

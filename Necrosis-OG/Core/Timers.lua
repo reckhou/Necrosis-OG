@@ -33,6 +33,8 @@ Core.TIMER_LIST_SETTINGS = { "timers.focusOn", "timers.focusOff", "timers.contro
 
 Core.MISSING_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.targetReminder", "timers.plateReminder" }
 
+Core.BAR_HIGHLIGHT_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.barHighlight" }
+
 Core.TARGET_OFFSET_MIN, Core.TARGET_OFFSET_MAX = -1000, 1000
 
 function Core.ClampTargetOffset(value, fallback)
