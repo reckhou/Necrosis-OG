@@ -148,7 +148,7 @@ local function StartProcTime(proc)
 end
 
 -- if icon can show, switch on, demo or placing
-local function SwitchedOn(key) return ns.db.alerts[key .. "On"] ~= false end
+local function SwitchedOn(key) return ns.db.alerts[key .. "On"] ~= false and ns.db.procBar.on ~= false end
 
 local function RefreshAll()
     if not bar then return end
@@ -371,4 +371,4 @@ ProcAlerts.GlowSeen = function() return glowSeen end
 ProcAlerts.Reading = function() return reading ~= nil end
 ProcAlerts.Time = function(key) return icons[key] and icons[key].time end
 
-ns.OnSetting({ "procBar.scale", "procBar.spacing" }, function() ProcAlerts.Refresh() end)
+ns.OnSetting({ "procBar.on", "procBar.scale", "procBar.spacing" }, function() ProcAlerts.Refresh() end)

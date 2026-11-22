@@ -25,19 +25,27 @@ local Bindings = {}
 ns.Bindings = Bindings
 
 local entries = {
+    { key = "fear", spell = "fear" },
+    { key = "banish", spell = "banish" },
+    { key = "sacrifice", spell = "sacrifice", macro = true },
+    { key = "seduction", spell = "seduction", macro = true },
+    { key = "enslaveDemon", spell = "enslaveDemon", macro = true },
+    { key = "curseOfWeakness", spell = "curseOfWeakness", macro = true },
+    { key = "baneOfAgony", spell = "baneOfAgony", macro = true },
+    { key = "curseOfExhaustion", spell = "curseOfExhaustion", macro = true },
     { key = "healthstone", label = "BIND_HEALTHSTONE" },
-    { key = "soulstone", label = "BIND_SOULSTONE" },
     { key = "hearthstone", label = "ACT_HEARTHSTONE" },
+    { key = "soulstone", label = "BIND_SOULSTONE" },
     { key = "mount", label = "BIND_MOUNT" },
     { key = "lifeTap", spell = "lifeTap" },
-    { key = "banish", spell = "banish" },
-    { key = "fear", spell = "fear" },
     { key = "shadowWard", spell = "shadowWard" },
     { key = "lastBane", label = "BIND_LAST_BANE" },
 }
 local buttons = {}
 
 local function Name(key) return "NecrosisOGBinding_" .. key end
+
+function Bindings.Command(key) return "CLICK " .. Name(key) .. ":LeftButton" end
 
 BINDING_HEADER_NECROSISOG = Text.SETTINGS_TITLE
 for _, entry in ipairs(entries) do
@@ -62,25 +70,41 @@ Bindings.StoneMacro = StoneMacro
 Buttons.OnCreate(function()
     for _, entry in ipairs(entries) do
         local button = CreateFrame("Button", Name(entry.key), UIParent, "SecureActionButtonTemplate")
-        button:RegisterForClicks("AnyUp")
+        button:RegisterForClicks("AnyDown", "AnyUp")
         button:SetAttribute("useOnKeyDown", false)
         button:Hide()
         buttons[entry.key] = button
     end
-    buttons.soulstone:SetScript("PreClick", function(button)
+    local tradeButton = CreateFrame("Button", "NecrosisOGHealthstoneTrade", UIParent, "SecureActionButtonTemplate")
+    tradeButton:RegisterForClicks("AnyUp")
+    tradeButton:SetAttribute("useOnKeyDown", false)
+    tradeButton:SetAttribute("type1", "trade")
+    tradeButton:Hide()
+    Buttons.SetTradeAction(tradeButton, true)
+    local handlers = {}
+    Buttons.SetTradeAction(buttons.healthstone)
+    handlers.healthstone = function(button, mouse) Buttons.PrepareTrade(button, mouse, true) end
+    handlers.soulstone = function(button)
         if not InCombat() then button:SetAttribute("macrotext1", StoneMacro("soulstone")) end
         local held = Stones.State()
         if held.soulstone and ns.Speech then ns.Speech.Speak("soulstone", "friend") end
-    end)
-    buttons.hearthstone:SetScript("PreClick", function()
+    end
+    handlers.hearthstone = function()
         local subject = ns.Mount.HearthSpeechSubject()
         if subject and ns.Speech then ns.Speech.Speak(subject) end
-    end)
-    buttons.mount:SetScript("PreClick", function()
+    end
+    handlers.mount = function()
         if ns.Mount.WillSummon() and ns.Speech then
             ns.Speech.Speak("mount")
         end
-    end)
+    end
+    for key, button in pairs(buttons) do
+        button:SetScript("PreClick", function(self, mouse, isDown)
+            if ns.BindingKeys then ns.BindingKeys.Press(key, isDown == true) end
+            if isDown then return end
+            if handlers[key] then handlers[key](self, mouse) end
+        end)
+    end
 end)
 
 Buttons.OnRefresh(function()
@@ -89,6 +113,9 @@ Buttons.OnRefresh(function()
         local actions
         if key == "healthstone" or key == "soulstone" then
             actions = { type1 = "macro", spell1 = false, macrotext1 = StoneMacro(key) }
+        elseif entry.macro then
+            local body = Buttons.MacroBody(key)
+            actions = body and { type1 = "macro", spell1 = false, macrotext1 = body } or Buttons.CastActions(key, nil)
         elseif key == "hearthstone" then
             actions = { type1 = "item", item1 = "item:" .. Core.HEARTHSTONE_ITEM }
         elseif key == "mount" then

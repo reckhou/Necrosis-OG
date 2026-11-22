@@ -46,6 +46,7 @@ Core.SPELLS = {
     deathCoil = { 6789, 17925, 17926 },
     howlOfTerror = { 5484, 17928 },
     seduction = { 6358 },
+    sacrifice = { 7812 },
     createFirestone = { 6366, 17951, 17952, 17953 },
     createSpellstone = { 2362, 17727, 17728 },
     felsteed = { 5784 }, dreadsteed = { 23161 },
@@ -273,6 +274,24 @@ Core.STONE_MACRO_SPELLS = { healthstone = "createHealthstone" }
 Core.CURSE_MACRO_KEYS = Core.AMPLIFY_LIST
 Core.CURSE_MACROS = { curseOfWeakness = "NOG Weakness", baneOfAgony = "NOG Agony", curseOfExhaustion = "NOG Exhaustion" }
 
+Core.PET_MACRO_KEYS = { "sacrifice" }
+Core.PET_MACROS = { sacrifice = "NOG Sacrifice" }
+
+Core.MACRO_ROW = { "fear", "banish", "sacrifice", "seduction", "enslaveDemon" }
+for _, key in ipairs(Core.CURSE_MACRO_KEYS) do Core.MACRO_ROW[#Core.MACRO_ROW + 1] = key end
+Core.MACRO_ROW[#Core.MACRO_ROW + 1] = "healthstone"
+Core.MACRO_ROW[#Core.MACRO_ROW + 1] = "hearthstone"
+
+-- find the macro key from the macro name
+function Core.MacroKeyOfName(name)
+    for _, names in ipairs({ Core.FOCUS_MACROS, Core.STONE_MACROS, Core.CURSE_MACROS, Core.PET_MACROS }) do
+        for key, macro in pairs(names) do
+            if macro == name then return key end
+        end
+    end
+    return nil
+end
+
 function Core.AmplifyCast(amplifyName, curseName)
     if not amplifyName then return "/cast " .. curseName end
     return "/cast " .. amplifyName .. "\n/cast " .. curseName
@@ -373,6 +392,8 @@ end
 
 Core.CONTROL_SPELLS = { "banish", "fear", "enslaveDemon", "deathCoil", "howlOfTerror", "seduction" }
 Core.PET_CONTROL_SPELLS = { seduction = true }
+
+Core.PET_SPELLS = { seduction = true, sacrifice = true }
 
 function Core.LearnSpellIds(key, name, items)
     local ranks = Core.SPELLS[key]

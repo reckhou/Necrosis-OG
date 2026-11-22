@@ -93,6 +93,7 @@ Core.DEFAULTS = {
         sounds = { antiFear = true, shadowTrance = true, decimation = true, amplifyCurse = true, unendingBreath = true,
             soulstone = true },
         shadowTranceOn = true, decimationOn = true, amplifyCurseOn = true,
+        sacrificeOn = true, sacrificeAt = 30,
         lengths = {},
     },
     controlButtons = {
@@ -101,10 +102,10 @@ Core.DEFAULTS = {
         sacrifice = { on = true, safeHide = "narrow" }, weaponStone = { on = true, safeHide = "narrow" },
         soulstone = { on = true, safeHide = "narrow" }, unendingBreath = { on = true },
     },
-    reminderBar = { point = "CENTER", relativePoint = "CENTER", x = 0, y = -110, scale = 100, spacing = 0, opacity = 100 },
-    procBar = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 70, scale = 100, spacing = 0, opacity = 100 },
+    reminderBar = { on = true, point = "CENTER", relativePoint = "CENTER", x = 0, y = -110, scale = 100, spacing = 0, opacity = 100 },
+    procBar = { on = true, point = "CENTER", relativePoint = "CENTER", x = 0, y = 70, scale = 100, spacing = 0, opacity = 100 },
     animation = { on = true, speed = 1 },
-    speech = { on = true, channel = "SAY", sets = {}, petNames = {} },
+    speech = { on = true, channel = "SAY", sets = {}, petNames = {}, off = {} },
     settingsWindow = { point = "TOPLEFT", relativePoint = "TOPLEFT", x = 100, y = -100 },
 }
 

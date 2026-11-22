@@ -35,6 +35,20 @@ Core.MISSING_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.target
 
 Core.BAR_HIGHLIGHT_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.barHighlight" }
 
+Core.SACRIFICE_SETTINGS = { "alerts.sacrificeOn", "alerts.sacrificeAt", "procBar.on" }
+Core.SACRIFICE_THRESHOLDS = { 10, 20, 30, 40, 50 }
+
+function Core.SacrificeThresholdOrDefault(value)
+    for _, each in ipairs(Core.SACRIFICE_THRESHOLDS) do
+        if value == each then return value end
+    end
+    return Core.DEFAULTS.alerts.sacrificeAt
+end
+
+function Core.SacrificeCurvePoints(percent)
+    return { { 0, 1 }, { Core.SacrificeThresholdOrDefault(percent) / 100, 0 } }
+end
+
 Core.TARGET_OFFSET_MIN, Core.TARGET_OFFSET_MAX = -1000, 1000
 
 function Core.ClampTargetOffset(value, fallback)

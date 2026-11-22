@@ -455,6 +455,24 @@ local function SetLocked(on)
     if ns.Alerts.Refresh then ns.Alerts.Refresh() end
 end
 
+-- small info icon with tooltip after the heading
+local function InfoIcon(page, after, title, lines)
+    local icon = CreateFrame("Frame", nil, page)
+    icon:SetSize(14, 14)
+    icon:SetPoint("LEFT", after, "RIGHT", 4, 0)
+    icon:EnableMouse(true)
+    icon.texture = icon:CreateTexture(nil, "ARTWORK")
+    icon.texture:SetAllPoints()
+    icon.texture:SetTexture("Interface\\FriendsFrame\\InformationIcon")
+    ns.Tips.Attach(icon, function(tooltip)
+        ns.Tips.Title(tooltip, title)
+        for _, line in ipairs(lines) do ns.Tips.Line(tooltip, line) end
+    end, "ANCHOR_RIGHT", true)
+    return icon
+end
+
+local MACRO_GAP = 28
+
 -- icon to drag on action bar
 local function MacroIcon(page, x, y, key)
     local icon = CreateFrame("Button", nil, page)
@@ -467,8 +485,10 @@ local function MacroIcon(page, x, y, key)
     icon:SetScript("OnClick", function() ns.Buttons.PickupFocusMacro(key) end)
     local spells = Core.SPELLS[Core.STONE_MACRO_SPELLS[key] or key]
     ns.Tips.Attach(icon, function(tooltip)
-        ns.Tips.Title(tooltip, key == "hearthstone" and Text.HEARTHSTONE or SpellName(spells[1]) or key)
+        ns.Tips.Title(tooltip, (key == "hearthstone" and Text.HEARTHSTONE) or (key == "healthstone" and Text.BIND_HEALTHSTONE)
+            or SpellName(spells[1]) or key)
         ns.Tips.Line(tooltip, Text.TIP_MACRO_DRAG)
+        if key == "sacrifice" then ns.Tips.Line(tooltip, Text.TIP_SACRIFICE_MACRO) end
         if Core.CURSE_MACROS[key] then
             ns.Tips.Line(tooltip, string.format(Text.ACT_THEN, SpellName(Core.SPELLS.amplifyCurse[1]) or "?", SpellName(spells[1]) or key))
         end
@@ -479,7 +499,7 @@ local function MacroIcon(page, x, y, key)
             return
         end
         self.texture:SetTexture(Plain(C_Spell.GetSpellTexture, spells[1]))
-        self.texture:SetDesaturated(Core.HighestKnown(spells, Core.PET_CONTROL_SPELLS[key] and ns.PetKnows or ns.Buttons.IsKnown) == nil)
+        self.texture:SetDesaturated(Core.HighestKnown(spells, Core.PET_SPELLS[key] and ns.PetKnows or ns.Buttons.IsKnown) == nil)
     end
     controls[#controls + 1] = icon
     return icon
@@ -495,23 +515,27 @@ local function GreyLabel(label, on)
     return label
 end
 
-local CONFIRM_DIALOGS = { positions = "NECROSIS_OG_RESET_POSITIONS", settings = "NECROSIS_OG_RESET_ALL" }
+local CONFIRM_DIALOGS = { positions = "NECROSIS_OG_RESET_POSITIONS", settings = "NECROSIS_OG_RESET_ALL",
+    speech = "NECROSIS_OG_RESTORE_SPEECH" }
+
+local confirmed = {}
 
 -- ask yes or no before do action
-local function Confirm(which, text, yes, onAccept)
+local function Confirm(which, text, yes, onAccept, arg)
     if type(StaticPopupDialogs) ~= "table" or type(StaticPopup_Show) ~= "function" then return end
     local name = CONFIRM_DIALOGS[which]
+    confirmed[which] = onAccept
     StaticPopupDialogs[name] = StaticPopupDialogs[name] or {
         text = text,
         button1 = yes,
         button2 = Text.SET_RESET_NO,
-        OnAccept = onAccept,
+        OnAccept = function() if confirmed[which] then confirmed[which]() end end,
         timeout = 0,
         whileDead = true,
         hideOnEscape = true,
         showAlert = true,
     }
-    StaticPopup_Show(name)
+    StaticPopup_Show(name, arg)
 end
 
 -- reset all setting after yes
@@ -529,15 +553,16 @@ local function GeneralPage(page)
     Check(page, 0, -16, Text.SET_AUTO_FOCUS, function() return db().buttons.autoFocus == true end, function(on)
         ns.SetSetting("buttons.autoFocus", on)
     end)
-    Heading(page, Text.SET_FOCUS_MACROS, -48)
-    MacroIcon(page, 4, -64, "fear")
-    MacroIcon(page, 34, -64, "banish")
-    local seduction = MacroIcon(page, 64, -64, "seduction")
-    MacroIcon(page, 94, -64, "enslaveDemon")
-    MacroIcon(page, 124, -64, "healthstone")
-    for i, key in ipairs(Core.CURSE_MACRO_KEYS) do MacroIcon(page, 124 + 30 * i, -64, key) end
-    MacroIcon(page, 154 + 30 * #Core.CURSE_MACRO_KEYS, -64, "hearthstone")
-    table.insert(ns.onSpellsChanged, function() seduction:Refresh() end)
+    local macroHead = Heading(page, Text.SET_FOCUS_MACROS, -48)
+    InfoIcon(page, macroHead, Text.SET_FOCUS_MACROS, { Text.TIP_MACROS_BARS, Text.TIP_MACROS_KEYS })
+    local petIcons = {}
+    for i, key in ipairs(Core.MACRO_ROW) do
+        local icon = MacroIcon(page, 4 + MACRO_GAP * (i - 1), -64, key)
+        if Core.PET_SPELLS[key] then petIcons[#petIcons + 1] = icon end
+    end
+    table.insert(ns.onSpellsChanged, function()
+        for _, icon in ipairs(petIcons) do icon:Refresh() end
+    end)
 
     Heading(page, Text.SET_HEAD_DISPLAY, -106)
     local animOn = function() return db().animation.on ~= false end
@@ -860,28 +885,48 @@ local function BarSliders(page, y, saved)
         end)
 end
 
+local BAR_BLOCK = 128
+
+local function BarBlock(tab, title, saved)
+    local on = function() return db()[saved].on ~= false end
+    Heading(tab, title, HEAD_TOP)
+    Check(tab, SHOW_X, HEAD_TOP + 7, Text.SET_SHOW, on, function(value) ns.SetSetting(saved .. ".on", value) end, 60)
+    local body = Section(tab, on)
+    BarSliders(body, HEAD_TOP - 30, saved)
+    return body
+end
+
 local ALERT_ROW = 26
 
-local function AlertsPage(page)
-    for i, key in ipairs(Core.ALERT_KEYS) do AlertRow(page, key, -(i - 1) * ALERT_ROW) end
-    local soundsTop = -#Core.ALERT_KEYS * ALERT_ROW - 8
+local function AlertsPage(tab)
+    local page = BarBlock(tab, Text.SET_PROC_BAR, "procBar")
+    for i, key in ipairs(Core.ALERT_KEYS) do AlertRow(page, key, -BAR_BLOCK - (i - 1) * ALERT_ROW) end
+    local soundsTop = -BAR_BLOCK - #Core.ALERT_KEYS * ALERT_ROW - 8
     Check(page, 0, soundsTop, Text.SET_WARN_SOUND, function() return db().timers.warnSound end,
         function(on) ns.SetSetting("timers.warnSound", on) end)
     Check(page, 0, soundsTop - 26, Text.SET_SOUND_DEMON, function() return db().timers.sounds.enslaveDemon ~= false end,
         function(on) ns.SetSetting("timers.sounds.enslaveDemon", on) end)
     Check(page, 0, soundsTop - 52, Text.SET_SOUND_SOULSTONE, function() return db().alerts.sounds.soulstone ~= false end,
         function(on) ns.SetSetting("alerts.sounds.soulstone", on) end)
-    local barTop = soundsTop - 90
-    Heading(page, Text.SET_PROC_BAR, barTop)
-    BarSliders(page, barTop - 30, "procBar")
+    local sacrificeOn = function() return db().alerts.sacrificeOn ~= false end
+    Check(page, 0, soundsTop - 78, string.format(Text.SET_SACRIFICE_GLOW, SpellName(Core.SPELLS.sacrifice[1]) or "?"),
+        sacrificeOn, function(on) ns.SetSetting("alerts.sacrificeOn", on) end, RIGHT_COLUMN - 30)
+    local thresholds = {}
+    for i, percent in ipairs(Core.SACRIFICE_THRESHOLDS) do
+        thresholds[i] = { percent, string.format(Text.SET_SACRIFICE_AT, percent) }
+    end
+    GreyedBy(Dropdown(page, RIGHT_COLUMN, soundsTop - 78, nil, thresholds,
+        function() return Core.SacrificeThresholdOrDefault(db().alerts.sacrificeAt) end,
+        function(value) ns.SetSetting("alerts.sacrificeAt", value) end, PAGE_WIDTH - RIGHT_COLUMN), sacrificeOn)
 end
 
 local SAFE_CHOICES = { { "off", Text.SET_SAFE_OFF }, { "narrow", Text.SET_SAFE_NARROW }, { "wide", Text.SET_SAFE_WIDE } }
 local SAFE_COLUMN = 140
 local REMINDER_ROW = 27
-local REMINDER_TOP = 0
+local REMINDER_TOP = -BAR_BLOCK
 
-local function RemindersPage(page)
+local function RemindersPage(tab)
+    local page = BarBlock(tab, Text.SET_REMINDER_BAR, "reminderBar")
     for i, key in ipairs(Core.CONTROL_BUTTON_KEYS) do
         local def = Core.CONTROL_BUTTONS[key]
         local name = def.label and Text[def.label]
@@ -902,9 +947,6 @@ local function RemindersPage(page)
                 end, PAGE_WIDTH - SAFE_COLUMN), function() return db().controlButtons[key].on ~= false end)
         end
     end
-    local barTop = REMINDER_TOP - #Core.CONTROL_BUTTON_KEYS * REMINDER_ROW - 4
-    Heading(page, Text.SET_REMINDER_BAR, barTop)
-    BarSliders(page, barTop - 30, "reminderBar")
 end
 
 -- tall box for emote or line text
@@ -917,7 +959,7 @@ local function SpeechBox(page, x, y, height, get, set)
     background:SetColorTexture(0, 0, 0, 0.5)
     local box = CreateFrame("EditBox", nil, holder)
     box:SetMultiLine(true)
-    box:SetFontObject("ChatFontNormal")
+    box:SetFontObject("GameFontHighlightSmall")
     box:SetWidth(PAGE_WIDTH - 17)
     box:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -6)
     box:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -6, 6)
@@ -968,51 +1010,66 @@ local function CurrentPreset()
 end
 
 local function SpeechPage(page)
-    Check(page, 0, 0, Text.SET_SPEECH_ON, function() return db().speech.on end, function(on) ns.SetSetting("speech.on", on) end)
+    local speechOn = function() return db().speech.on == true end
+    local subjectOn = function() return db().speech.off[selectedSubject] ~= true end
     local channels = { { "SAY", Text.SET_CHANNEL_SAY }, { "YELL", Text.SET_CHANNEL_YELL }, { "PARTY", Text.SET_CHANNEL_PARTY } }
-    Dropdown(page, 0, -36, Text.SET_SPEECH_CHANNEL, channels, function() return db().speech.channel end,
-        function(value) ns.SetSetting("speech.channel", value) end, 138)
+    GreyedBy(Dropdown(page, 0, 0, nil, channels, function() return db().speech.channel end,
+        function(value) ns.SetSetting("speech.channel", value) end, 138), speechOn)
+    Check(page, RIGHT_COLUMN, 0, Text.SET_SPEECH_ON, function() return db().speech.on end,
+        function(on) ns.SetSetting("speech.on", on) end)
+
+    local rest = Section(page, speechOn)
     local subjects = {}
     for i, subject in ipairs(Core.SPEECH_SUBJECTS) do subjects[i] = { subject, SubjectName(subject) } end
-    Dropdown(page, RIGHT_COLUMN, -36, Text.SET_SPEECH_SUBJECT, subjects, function() return selectedSubject end,
+    Dropdown(rest, 0, -32, nil, subjects, function() return selectedSubject end,
         function(value) selectedSubject = value end, 138)
-    local help = Label(page, Text.SET_SPEECH_HELP, 0, -82, "GameFontHighlightSmall")
+    Check(rest, RIGHT_COLUMN, -32, Text.SET_SPEECH_SUBJECT_ON, subjectOn, function(on)
+        ns.SetSetting("speech.off." .. selectedSubject, (not on) or nil)
+    end)
+
+    local lines = Section(rest, subjectOn)
+    local help = Label(lines, Text.SET_SPEECH_HELP, 0, -66, "GameFontHighlightSmall")
     help:SetWidth(PAGE_WIDTH)
 
-    Dropdown(page, 0, -126, Text.SET_SPEECH_PRESET, function()
+    local PRESET_TOP = -94
+    Dropdown(lines, 0, PRESET_TOP, Text.SET_SPEECH_PRESET, function()
         local options = {}
         for i, set in ipairs(Presets()) do
             options[i] = { i, string.format(Text.SET_SPEECH_PRESET_NAME, i, Core.PresetName(set, 40, Text.SET_SPEECH_EMPTY)) }
         end
         return options
     end, CurrentPreset, function(value) selectedPreset[selectedSubject] = value end, nil, 10)
-    PushButton(page, 158, -140, Text.SET_SPEECH_ADD, function()
+    PushButton(lines, 158, PRESET_TOP - 14, Text.SET_SPEECH_ADD, function()
         local index = ns.Speech.AddSet(selectedSubject)
         if index then
             selectedPreset[selectedSubject] = index
         end
     end, 62,
         function() return #Presets() < Core.SPEECH_MAX end)
-    PushButton(page, 224, -140, Text.SET_SPEECH_DELETE, function()
+    PushButton(lines, 224, PRESET_TOP - 14, Text.SET_SPEECH_DELETE, function()
         local index = CurrentPreset()
         if index > 0 then ns.Speech.DeleteSet(selectedSubject, index) end
     end, 62)
 
-    local boxes = Section(page, function() return CurrentPreset() > 0 end)
-    Label(boxes, Text.SET_SPEECH_EMOTE, 0, -174)
-    SpeechBox(boxes, 0, -188, 40, function()
+    local boxes = Section(lines, function() return CurrentPreset() > 0 end)
+    Label(boxes, Text.SET_SPEECH_EMOTE, 0, PRESET_TOP - 44)
+    SpeechBox(boxes, 0, PRESET_TOP - 58, 40, function()
         local set = Presets()[CurrentPreset()]
         return set and set.emote or ""
     end, function(text) ns.Speech.SetText(selectedSubject, CurrentPreset(), "emote", text) end)
-    Label(boxes, Text.SET_SPEECH_LINE, 0, -236)
-    SpeechBox(boxes, 0, -250, 62, function()
+    Label(boxes, Text.SET_SPEECH_LINE, 0, PRESET_TOP - 106)
+    SpeechBox(boxes, 0, PRESET_TOP - 120, 62, function()
         local set = Presets()[CurrentPreset()]
         return set and set.line or ""
     end, function(text) ns.Speech.SetText(selectedSubject, CurrentPreset(), "line", text) end)
 
-    PushButton(page, 4, -320, Text.SET_SPEECH_RESTORE, function()
-        ns.Speech.Restore(selectedSubject)
-        selectedPreset[selectedSubject] = 1
+    PushButton(lines, 4, PRESET_TOP - 190, Text.SET_SPEECH_RESTORE, function()
+        local subject = selectedSubject
+        Confirm("speech", Text.SET_SPEECH_RESTORE_CONFIRM, Text.SET_SPEECH_RESTORE_YES, function()
+            ns.Speech.Restore(subject)
+            selectedPreset[subject] = 1
+            RefreshAll()
+        end, SubjectName(subject))
     end)
 end
 

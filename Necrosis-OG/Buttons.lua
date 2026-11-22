@@ -467,6 +467,26 @@ local function HookUnitMenus()
     for _, tag in ipairs(MENU_TAGS) do pcall(Menu.ModifyMenu, tag, AddTradeEntry) end
 end
 
+function Buttons.CanTradeNow()
+    if InCombat() or not held.healthstone then return false end
+    return tradeOpen or Core.CanTradeTo(Plain(UnitExists, "target"), Plain(UnitIsPlayer, "target"),
+        Plain(UnitIsFriend, "player", "target"), Plain(UnitIsUnit, "target", "player"))
+end
+
+-- trade healthstone first if friend is target
+function Buttons.PrepareTrade(button, mouse, withModifiers)
+    if mouse ~= "LeftButton" or InCombat() then return end
+    if IsModifierKeyDown() and not withModifiers then return end
+    button:SetAttribute("type1", Buttons.CanTradeNow() and "trade" or "macro")
+end
+
+function Buttons.SetTradeAction(button, plain)
+    button.trade = function()
+        if not plain and not InCombat() then button:SetAttribute("type1", "macro") end
+        Trade("target")
+    end
+end
+
 local function IsUsable(kind)
     return held[kind] ~= nil
 end
@@ -483,7 +503,6 @@ local function SetStoneActions(kind)
         type2 = createId and "spell" or false, spell2 = createId or false,
     }
     if kind == "healthstone" then
-        actions["ctrl-type2"] = "trade"
     elseif STONES[kind].onWeapon then
         actions.askReplace = (held[kind] ~= nil and equipped[kind] == true) or false
         Buttons.SetActions(Buttons.replaceButtons[kind], { type1 = actions.type1, macrotext1 = actions.macrotext1 })
@@ -504,9 +523,8 @@ local function StoneTooltip(kind)
             Buttons.SpellTooltip(tooltip, button.createId, Core.SPELLS[STONES[kind].create][1])
         end
         if kind == "healthstone" then
-            Tips.Click(tooltip, "left", Text.ACT_USE)
+            Tips.Click(tooltip, "left", Text.ACT_USE_OR_TRADE)
             Tips.Click(tooltip, "right", Text.ACT_CREATE)
-            Tips.Click(tooltip, "ctrlRight", Text.ACT_TRADE)
             Tips.Note(tooltip, Text.TIP_TRADE_OUT_OF_COMBAT)
         elseif STONES[kind].onWeapon then
             Tips.Click(tooltip, "left", Text.ACT_PUT_ON)
@@ -550,9 +568,10 @@ local function CreateStoneButton(kind)
             and not IsModifierKeyDown() then
             Stones.NoteApplied(kind)
         end
+        if kind == "healthstone" then Buttons.PrepareTrade(self, mouse) end
         WarnNoStone(kind, mouse)
     end
-    if kind == "healthstone" then button.trade = function() Trade("target") end end
+    if kind == "healthstone" then Buttons.SetTradeAction(button) end
     if kind == "soulstone" then
         button.speechSubject = function(mouse)
             if mouse ~= "LeftButton" then return nil end
@@ -741,12 +760,29 @@ local function MacroText(key)
     if key == "hearthstone" then
         return Core.STONE_MACROS[key], "#showtooltip item:" .. Core.HEARTHSTONE_ITEM .. "\n/click NecrosisOGBinding_hearthstone"
     end
+    if key == "healthstone" then
+        local stone = Stones.State().healthstone
+        local itemId = stone and stone.id or Core.HEALTHSTONES[#Core.HEALTHSTONES]
+        local create = Core.HighestKnown(Core.SPELLS[Stones.Definition("healthstone").create], Buttons.IsKnown)
+        local shown = (stone and "item:" .. stone.id) or (create and SpellName(create)) or "item:" .. itemId
+        local icon = C_Item and Plain(C_Item.GetItemIconByID, itemId)
+        local head = "#showtooltip " .. shown .. "\n"
+        local trade = Buttons.CanTradeNow() and "/click [nocombat] NecrosisOGHealthstoneTrade\n/stopmacro [nocombat]\n" or ""
+        local text = ns.Bindings and ns.Bindings.StoneMacro(key, Core.MACRO_LIMIT - #head - #trade)
+        if not text or text == "" then return nil end
+        return Core.STONE_MACROS[key], head .. trade .. text, icon
+    end
     if Core.STONE_MACROS[key] then
         local text = ns.Bindings and ns.Bindings.StoneMacro(key, Core.MACRO_LIMIT - #SHOW_TOOLTIP)
         if not text or text == "" then return nil end
         return Core.STONE_MACROS[key], SHOW_TOOLTIP .. text
     end
-    local id = Core.HighestKnown(Core.SPELLS[key], Core.PET_CONTROL_SPELLS[key] and ns.PetKnows or Buttons.IsKnown)
+    if Core.PET_MACROS[key] then
+        local name = SpellName(Core.SPELLS[key][1])
+        if not name then return nil end
+        return Core.PET_MACROS[key], SHOW_TOOLTIP .. "/cast " .. name
+    end
+    local id = Core.HighestKnown(Core.SPELLS[key], Core.PET_SPELLS[key] and ns.PetKnows or Buttons.IsKnown)
     local spellName = id and SpellName(id)
     if not spellName then return nil end
     if Core.CURSE_MACROS[key] then
@@ -756,17 +792,23 @@ local function MacroText(key)
     return Core.FOCUS_MACROS[key], Core.FocusMacroBody(spellName, ns.db.buttons.autoFocus == true)
 end
 
+-- text of the macro without the icon line
+function Buttons.MacroBody(key)
+    local _, body = MacroText(key)
+    return body and (string.gsub(body, "^#[^\n]*\n", ""))
+end
+
 -- update one focus macro, create it if create is true
 local function SyncFocusMacro(key, create)
-    local macro, body = MacroText(key)
+    local macro, body, icon = MacroText(key)
     if not macro then return nil end
     local index = FindMacro(macro)
     if index then
         local _, _, old = GetMacroInfo(index)
-        if old ~= body then pcall(EditMacro, index, nil, nil, body) end
+        if old ~= body then pcall(EditMacro, index, nil, icon, body) end
         return index
     elseif create then
-        local ok, made = pcall(CreateMacro, macro, "INV_MISC_QUESTIONMARK", body, true)
+        local ok, made = pcall(CreateMacro, macro, icon or "INV_MISC_QUESTIONMARK", body, true)
         if (not ok or not made or made == 0) and not warnedMacrosFull then
             warnedMacrosFull = true
             ns.Print(Text.FOCUS_MACROS_FULL)
@@ -782,6 +824,7 @@ function Buttons.SyncFocusMacros()
     for _, key in ipairs(Core.FOCUS_MACRO_KEYS) do SyncFocusMacro(key, focus) end
     for _, key in ipairs(Core.STONE_MACRO_KEYS) do SyncFocusMacro(key, false) end
     for _, key in ipairs(Core.CURSE_MACRO_KEYS) do SyncFocusMacro(key, false) end
+    for _, key in ipairs(Core.PET_MACRO_KEYS) do SyncFocusMacro(key, false) end
 end
 
 Buttons.OnRefresh(Buttons.SyncFocusMacros)
@@ -796,7 +839,8 @@ end)
 
 -- put focus macro on cursor
 function Buttons.PickupFocusMacro(key)
-    if not (Core.FOCUS_MACROS[key] or Core.STONE_MACROS[key] or Core.CURSE_MACROS[key]) or not macrosReady or InCombat() or not MacrosAvailable() then return false end
+    if not (Core.FOCUS_MACROS[key] or Core.STONE_MACROS[key] or Core.CURSE_MACROS[key] or Core.PET_MACROS[key])
+        or not macrosReady or InCombat() or not MacrosAvailable() then return false end
     if type(PickupMacro) ~= "function" then return false end
     local index = SyncFocusMacro(key, true)
     if not index then return false end
@@ -830,8 +874,14 @@ end
 
 handlers.SPELLS_CHANGED = function() Buttons.Refresh() end
 handlers.LEARNED_SPELL_IN_SKILL_LINE = function() Buttons.Refresh() end
-handlers.TRADE_SHOW = function() tradeOpen = true end
-handlers.TRADE_CLOSED = function() tradeOpen = false end
+
+local function SyncStoneMacro()
+    if macrosReady and not InCombat() and MacrosAvailable() then SyncFocusMacro("healthstone", false) end
+end
+
+handlers.TRADE_SHOW = function() tradeOpen = true; SyncStoneMacro() end
+handlers.TRADE_CLOSED = function() tradeOpen = false; SyncStoneMacro() end
+handlers.PLAYER_TARGET_CHANGED = SyncStoneMacro
 
 events:SetScript("OnEvent", function(_, event, ...) handlers[event](...) end)
 
@@ -896,4 +946,4 @@ end
 
 ns.OnSetting({ "buttons.autoFocus", "buttons.ringOrder", "buttons.menuOrder", "buttons.menuOff",
     "buttons.menuCloses", "buttons.menuDirection", "sphere.clicks", "sphere.buttonSize", "sphere.rotation",
-    "sphere.spacing", "sphere.distance", "controlButtons", "reminderBar.scale", "reminderBar.spacing" }, function() Buttons.Refresh() end)
+    "sphere.spacing", "sphere.distance", "controlButtons", "reminderBar.on", "reminderBar.scale", "reminderBar.spacing" }, function() Buttons.Refresh() end)

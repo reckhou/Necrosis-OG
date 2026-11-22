@@ -208,7 +208,7 @@ end
 local function Refresh(unit, resync)
     local strip = byUnit[unit]
     if not strip then return end
-    if demoSet and unit == "target" then return RefreshDemo(strip) end
+    if demoSet then return RefreshDemo(strip) end
     strip.alive = Game.Plain(UnitIsDeadOrGhost, unit) == false
     local enemy = strip.enabled and strip.alive and Game.Plain(UnitCanAttack, "player", unit) == true
         and Game.Plain(UnitAffectingCombat, unit) == true
@@ -551,10 +551,10 @@ table.insert(ns.onSphere, function()
                 local sets = Core.DEMO.missingSets
                 demoSet = sets[step % #sets + 1]
                 step = step + 1
-                Refresh("target")
+                for unit in pairs(byUnit) do Refresh(unit) end
             end)
         end
-        Refresh("target", true)
+        for unit in pairs(byUnit) do Refresh(unit, true) end
     end)
     ns.OnSetting(Core.MISSING_SETTINGS, function()
         ReadSpellbook()

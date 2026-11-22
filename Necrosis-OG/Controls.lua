@@ -218,7 +218,7 @@ local soulstoneCooling = false
 
 -- play sound and message when switch on
 local function SoulstoneReadySound()
-    if ns.db.alerts.sounds.soulstone == false then return end
+    if ns.db.alerts.sounds.soulstone == false or ns.db.reminderBar.on == false then return end
     if type(PlaySoundFile) == "function" then pcall(PlaySoundFile, SOULSTONE_SOUND, "Master") end
     ns.Banner(Text.SOULSTONE_READY, 1.0, 0.82, 0.0)
 end
@@ -319,7 +319,7 @@ end
 local breathSoundAt
 
 local function BreathSound()
-    if ns.db.alerts.sounds.unendingBreath == false or ns.Silent() or type(PlaySound) ~= "function" then return end
+    if ns.db.alerts.sounds.unendingBreath == false or ns.db.reminderBar.on == false or ns.Silent() or type(PlaySound) ~= "function" then return end
     local now = GetTime()
     if breathSoundAt and now - breathSoundAt < Core.BREATH_SOUND_GAP then return end
     breathSoundAt = now
@@ -560,7 +560,7 @@ local function Refresh()
         end
         item.face.icon:SetDesaturated(id == nil and not ns.demo)
         local required = not def.requires or Core.HighestKnown(Core.SPELLS[def.requires], Buttons.IsKnown) ~= nil
-        button.ready = saved.on ~= false and ((id ~= nil and required) or ns.placing == true or Buttons.DemoMode())
+        button.ready = saved.on ~= false and ns.db.reminderBar.on ~= false and ((id ~= nil and required) or ns.placing == true or Buttons.DemoMode())
         item.ready = button.ready
     end
     Bars.Apply(bar)

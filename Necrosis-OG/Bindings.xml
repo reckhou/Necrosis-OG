@@ -19,13 +19,19 @@ program. If you did not, see <https://www.gnu.org/licenses/>.
 SPDX-License-Identifier: GPL-2.0-or-later
 -->
 <Bindings>
+    <Binding name="CLICK NecrosisOGBinding_fear:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_banish:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_sacrifice:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_seduction:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_enslaveDemon:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_curseOfWeakness:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_baneOfAgony:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_curseOfExhaustion:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_healthstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
-    <Binding name="CLICK NecrosisOGBinding_soulstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_hearthstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
+    <Binding name="CLICK NecrosisOGBinding_soulstone:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_mount:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_lifeTap:LeftButton" category="BINDING_HEADER_NECROSISOG" />
-    <Binding name="CLICK NecrosisOGBinding_banish:LeftButton" category="BINDING_HEADER_NECROSISOG" />
-    <Binding name="CLICK NecrosisOGBinding_fear:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_shadowWard:LeftButton" category="BINDING_HEADER_NECROSISOG" />
     <Binding name="CLICK NecrosisOGBinding_lastBane:LeftButton" category="BINDING_HEADER_NECROSISOG" />
 </Bindings>

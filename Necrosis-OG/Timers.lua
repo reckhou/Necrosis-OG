@@ -43,7 +43,7 @@ local IsSecret, Plain, SpellName = ns.Game.IsSecret, ns.Game.Plain, ns.Game.Spel
 
 -- sound and yellow line before control end
 local function Warn(timer)
-    if not ns.db.timers.warnSound or not ns.db.timers.controlOn then return end
+    if not ns.db.timers.warnSound or not ns.db.timers.controlOn or ns.db.procBar.on == false then return end
     if type(PlaySound) == "function" and not ns.Silent() then
         pcall(PlaySound, type(SOUNDKIT) == "table" and SOUNDKIT.RAID_WARNING or WARNING_SOUND)
     end
@@ -59,7 +59,7 @@ end
 
 local function PlayEndSound(key)
     local file = END_SOUNDS[key]
-    if not file or ns.db.timers.sounds[key] == false or ns.Silent() or type(PlaySoundFile) ~= "function" then return end
+    if not file or ns.db.timers.sounds[key] == false or ns.db.procBar.on == false or ns.Silent() or type(PlaySoundFile) ~= "function" then return end
     pcall(PlaySoundFile, SOUND_PATH .. file, "Master")
 end
 

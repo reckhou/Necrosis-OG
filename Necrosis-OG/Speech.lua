@@ -88,7 +88,7 @@ end
 -- speak line for subject, targetKind is nil, "target" or "friend"
 function Speech.Speak(subject, targetKind)
     local settings = ns.db.speech
-    if not settings.on then
+    if not settings.on or settings.off[subject] then
         return
     end
     local now = GetTime()

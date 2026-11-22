@@ -76,7 +76,7 @@ local function Hide()
 end
 
 local function Show(reason)
-    if not ns.db.alerts.antiFearOn then return end
+    if not ns.db.alerts.antiFearOn or ns.db.procBar.on == false then return end
     local first = active == nil
     if not first and reason == "type" then return end
     active = reason
@@ -130,12 +130,14 @@ end
 table.insert(ns.onSphere, Create)
 
 function Alerts.Refresh()
-    if not ns.db.alerts.antiFearOn then active = nil end
+    if not ns.db.alerts.antiFearOn or ns.db.procBar.on == false then active = nil end
     Refresh()
     if ns.ProcAlerts then ns.ProcAlerts.Refresh() end
 end
 
 Alerts.Active = function() return active end
+
+ns.OnSetting("procBar.on", function() Alerts.Refresh() end)
 
 ns.OnSetting("alerts", function(path)
     if not Core.PathUnder(path, "alerts.sounds") then Alerts.Refresh() end

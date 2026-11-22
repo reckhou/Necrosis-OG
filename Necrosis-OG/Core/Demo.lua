@@ -36,6 +36,7 @@ Core.DEMO = {
     },
     procs = { "shadowTrance", "decimation", "amplifyCurse", "antiFear" },
     procStep = 2.5,
+    sacrificeStep = 3,
     reminderStep = 2.5,
     reminderSizes = { 3, 4, 3, 2, 4, 3 },
     missingStep = 2.5,

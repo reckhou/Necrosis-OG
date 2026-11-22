@@ -122,7 +122,7 @@ function ns.LearnPetSpells()
         end
     end
     local added = false
-    for key in pairs(Core.PET_CONTROL_SPELLS) do
+    for key in pairs(Core.PET_SPELLS) do
         local got, name = pcall(C_Spell.GetSpellName, Core.SPELLS[key][1])
         if got and not IsSecret(name) and Core.LearnSpellIds(key, name, items) then added = true end
     end
