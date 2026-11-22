@@ -14,6 +14,7 @@ Every veteran Warlock remembers it: One Soul Shard Sphere, ringed by buttons for
 - **Smart Reminders:** Know when you are missing an essential buff or a Healthstone, when a Soulstone is ready, or when your minion is MIA.
 - **Demons, Curses and Utility Menus:** Every spell you know, one click away. No need to clutter your action bars.
 - **Enemy Tracker:** Track your DoTs and curses on every enemy, with their health and your threat.
+- **Missing Debuff Tracking:** See which of your DoTs and curses are missing, on your target or nameplates, and the next one to cast glows on your action bars.
 - **Proc Alerts:** Alerts for Nightfall, Decimation, Amplify Curse and Fear immunity.
 - **Control on Focus:** Cast Banish, Fear, Seduction, curses and Death Coil on your focus without a target swap.
 - **Control Warnings:** Know when Banish or Fear is about to break, and when your enslaved demon breaks free.
