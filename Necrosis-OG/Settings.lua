@@ -580,6 +580,13 @@ local function GeneralPage(page)
         function(value) ns.SetSetting("textSize", value) end, 138)
     Dropdown(page, 0, -218, Text.SET_BAR_TEXTURE, ns.Media.BarChoices, function() return db().barTexture end,
         function(value) ns.SetSetting("barTexture", value) end, 138)
+    local windowSizes = {}
+    for i, size in ipairs(Core.WINDOW_SCALES) do
+        windowSizes[i] = { size, string.format(Text.SETTINGS_PERCENT_VALUE, size) }
+    end
+    Dropdown(page, RIGHT_COLUMN, -218, Text.SET_WINDOW_SIZE, windowSizes,
+        function() return Core.WindowScaleOrDefault(db().windowScale) end,
+        function(value) ns.SetSetting("windowScale", value) end, 138)
 
     Heading(page, Text.SET_HEAD_TOOLS, -(PAGE_HEIGHT - 82))
     local demo = PushButton(page, 4, -(PAGE_HEIGHT - 64), Text.SET_DEMO_START, function() ns.SetDemo(not ns.demoData) end,
@@ -909,15 +916,16 @@ local function AlertsPage(tab)
     Check(page, 0, soundsTop - 52, Text.SET_SOUND_SOULSTONE, function() return db().alerts.sounds.soulstone ~= false end,
         function(on) ns.SetSetting("alerts.sounds.soulstone", on) end)
     local sacrificeOn = function() return db().alerts.sacrificeOn ~= false end
-    Check(page, 0, soundsTop - 78, string.format(Text.SET_SACRIFICE_GLOW, SpellName(Core.SPELLS.sacrifice[1]) or "?"),
-        sacrificeOn, function(on) ns.SetSetting("alerts.sacrificeOn", on) end, RIGHT_COLUMN - 30)
+    local SACRIFICE_DROP_X = 200
+    Check(page, 0, soundsTop - 78, Text.SET_SACRIFICE_GLOW,
+        sacrificeOn, function(on) ns.SetSetting("alerts.sacrificeOn", on) end, SACRIFICE_DROP_X - 30)
     local thresholds = {}
     for i, percent in ipairs(Core.SACRIFICE_THRESHOLDS) do
         thresholds[i] = { percent, string.format(Text.SET_SACRIFICE_AT, percent) }
     end
-    GreyedBy(Dropdown(page, RIGHT_COLUMN, soundsTop - 78, nil, thresholds,
+    GreyedBy(Dropdown(page, SACRIFICE_DROP_X, soundsTop - 78, nil, thresholds,
         function() return Core.SacrificeThresholdOrDefault(db().alerts.sacrificeAt) end,
-        function(value) ns.SetSetting("alerts.sacrificeAt", value) end, PAGE_WIDTH - RIGHT_COLUMN), sacrificeOn)
+        function(value) ns.SetSetting("alerts.sacrificeAt", value) end, PAGE_WIDTH - SACRIFICE_DROP_X), sacrificeOn)
 end
 
 local SAFE_CHOICES = { { "off", Text.SET_SAFE_OFF }, { "narrow", Text.SET_SAFE_NARROW }, { "wide", Text.SET_SAFE_WIDE } }
@@ -1176,10 +1184,28 @@ function Window.NewPage(window)
     return page
 end
 
+-- change size of the settings window, keep the corner in place
+function Window.ApplyScale()
+    if not frame then return end
+    local scale = Core.WindowScaleOrDefault(db().windowScale) / 100
+    local old = frame:GetScale()
+    if math.abs(old - scale) < 0.0001 then return end
+    local point, _, relativePoint, x, y = frame:GetPoint()
+    frame:SetScale(scale)
+    if point then
+        frame:ClearAllPoints()
+        frame:SetPoint(point, UIParent, relativePoint, x * old / scale, y * old / scale)
+        SavePlace()
+    end
+end
+
+ns.OnSetting("windowScale", function() Window.ApplyScale() end)
+
 local function Create()
     frame = CreateFrame("Frame", "NecrosisOGSettingsFrame", UIParent)
     local _
     _, pageTitle = Window.ClassicFrame(frame, Text.SETTINGS_TITLE)
+    frame:SetScale(Core.WindowScaleOrDefault(db().windowScale) / 100)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         SavePlace()

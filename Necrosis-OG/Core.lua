@@ -29,6 +29,7 @@ Core.DEFAULTS = {
     skin = "Rose",
     font = "friz",
     textSize = 100,
+    windowScale = 100,
     barTexture = "blizzard",
     sphere = {
         point = "CENTER", relativePoint = "CENTER", x = 0, y = -200,
@@ -253,6 +254,7 @@ Core.BAR_TEXTURE_LIST = {
 
 Core.LSM_PREFIX = "lsm:"
 Core.TEXT_SIZES = { 80, 90, 100, 115, 130 }
+Core.WINDOW_SCALES = { 80, 90, 100, 110, 120, 130, 140, 150 }
 
 function Core.MediaEntry(list, key)
     for _, entry in ipairs(list) do
@@ -303,6 +305,14 @@ function Core.TextSizeOrDefault(value)
         if size == value then return value end
     end
     return Core.DEFAULTS.textSize
+end
+
+-- window size in percent, or 100 when not on the list
+function Core.WindowScaleOrDefault(value)
+    for _, size in ipairs(Core.WINDOW_SCALES) do
+        if size == value then return value end
+    end
+    return Core.DEFAULTS.windowScale
 end
 
 function Core.ScaledFontSize(size, percent)
