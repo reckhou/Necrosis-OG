@@ -167,6 +167,10 @@ function Rings.NewGlow(parent, key, add)
     return frame
 end
 
+function Rings.ShowGlow(frame, shown)
+    ShowLayers(frame.layers, shown)
+end
+
 function Rings.SetGlowKey(frame, key)
     if frame.key == key then return end
     frame.key = key

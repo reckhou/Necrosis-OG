@@ -28,6 +28,7 @@ Core.DEMO = {
     controls = { { key = "banish", length = 12 }, { key = "fear", length = 8 }, { key = "enslaveDemon", length = 16 } },
     focusLengths = { banish = 12, seduction = 9, fear = 7, curseOfRecklessness = 14, curseOfWeakness = 11, deathCoil = 6 },
     focusOutOfRange = "deathCoil",
+    enemyTargetStep = 3,
     enemies = {
         { portrait = "voidwalker", health = 85, threat = 100,
             slots = { bane = 14, corruption = 10, immolate = 8, siphonLife = 12, demonicBrand = 15, curse = 16 } },
@@ -60,7 +61,6 @@ function Core.DemoProcsOn(step, keys)
     return on
 end
 
--- which reminder show at this step, return key -> true
 function Core.DemoRemindersOn(step, keys, sizes)
     local count = #keys
     local on = {}

@@ -24,11 +24,10 @@ local Core = ns.Core
 Core.SPEECH_SUBJECTS = { "imp", "voidwalker", "succubus", "incubus", "felhunter", "inferno", "ritualOfDoom",
     "soulstone", "ritualOfSummoning", "mount", "hearthstone" }
 Core.SPEECH_MAX = 100
-Core.SPEECH_COOLDOWN = 5
 
-Core.SPEECH_COOLDOWNS = { mount = 60 } -- longer cooldown for some subject
+Core.SPEECH_COOLDOWN = 60
+Core.SPEECH_COOLDOWNS = { ritualOfSummoning = 3, mount = 90 }
 
--- seconds before subject speak again
 function Core.SpeechCooldown(subject)
     return Core.SPEECH_COOLDOWNS[subject] or Core.SPEECH_COOLDOWN
 end
@@ -36,7 +35,19 @@ end
 Core.SPEECH_NEEDS_STILL = { imp = true, voidwalker = true, succubus = true, incubus = true, felhunter = true,
     inferno = true, ritualOfDoom = true, ritualOfSummoning = true, hearthstone = true }
 
--- true when the subject cant cast now, so it not speak
+Core.SPEECH_NEEDS_SPELL = { imp = true, voidwalker = true, succubus = true, incubus = true, felhunter = true,
+    inferno = true, ritualOfDoom = true, ritualOfSummoning = true }
+
+-- true when no spell rank can cast
+function Core.SpeechSpellUnusable(subject, usable)
+    local ids = Core.SPEECH_NEEDS_SPELL[subject] and Core.SPELLS[subject]
+    if not ids then return false end
+    for _, id in ipairs(ids) do
+        if usable(id) ~= false then return false end
+    end
+    return true
+end
+
 function Core.SpeechBlocked(subject, state)
     if not Core.SPEECH_NEEDS_STILL[subject] then return false end
     return state.moving == true or state.falling == true or state.mounted == true
@@ -77,17 +88,18 @@ function Core.PresetName(set, limit, empty)
     return string.sub(text, 1, cut) .. "..."
 end
 
--- pick random set, not same with last one if can
-function Core.PickSpeech(sets, last, random)
-    local usable = {}
+-- shuffle sets, keep last pick out of first place
+function Core.SpeechOrder(sets, last, random)
+    local order = {}
     for i, set in ipairs(sets) do
-        if set.emote ~= "" or set.line ~= "" then usable[#usable + 1] = i end
+        if set.emote ~= "" or set.line ~= "" then order[#order + 1] = i end
     end
-    if #usable == 0 then return nil end
-    if #usable > 1 then
-        for n = #usable, 1, -1 do if usable[n] == last then table.remove(usable, n) end end
+    for n = #order, 2, -1 do
+        local pick = random(n)
+        order[n], order[pick] = order[pick], order[n]
     end
-    return usable[random(#usable)]
+    if #order > 1 and order[1] == last then order[1], order[2] = order[2], order[1] end
+    return order
 end
 
 -- replace <player>, <target> and <pet> in the line
@@ -264,7 +276,6 @@ local function SameSets(own, old)
     return true
 end
 
--- clear the sets that still same as old preset, return the subjects
 function Core.DropOldSpeechDefaults(sets)
     local cleared = {}
     if type(sets) ~= "table" then return cleared end

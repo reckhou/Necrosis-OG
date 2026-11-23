@@ -52,6 +52,7 @@ Core.SPELLS = {
     felsteed = { 5784 }, dreadsteed = { 23161 },
     shadowBolt = { 686, 695, 705, 1088, 1106, 7641, 11659, 11660, 11661, 25307 },
     soulFire = { 6353, 17924 },
+    wrack = { 1316697 },
     amplifyCurse = { 18288 },
     curseOfWeakness = { 702, 1108, 6205, 7646, 11707, 11708 },
     curseOfRecklessness = { 704, 7658, 7659, 11717 },
@@ -244,6 +245,20 @@ function Core.BarGlowChain(place)
     return -(place - 1) * Core.BAR_GLOW_STEP, widths
 end
 
+function Core.BarGlowAllChain(count)
+    local widths = {}
+    for i = 1, count do widths[i] = Core.BAR_GLOW_STEP end
+    return -count * Core.BAR_GLOW_STEP, widths
+end
+
+function Core.RotationChoice(state)
+    if state.channelling then return nil end
+    if state.bolt then return "bolt" end
+    if state.missing then return "missing" end
+    if state.soon then return "refresh" end
+    return "wrack"
+end
+
 function Core.BarGlowOffset(place, isOn)
     local x, widths = Core.BarGlowChain(place)
     for i, width in ipairs(widths) do
@@ -309,6 +324,7 @@ function Core.FocusMacroBody(spellName, focus)
     return table.concat(lines, "\n")
 end
 
+Core.SOULSTONE_AURAS = { 20707, 20762, 20763, 20764, 20765 }
 Core.CONTROL_BUTTON_KEYS = { "armour", "healthstone", "soulLink", "demon", "sacrifice", "weaponStone", "soulstone",
     "unendingBreath" }
 
@@ -328,7 +344,7 @@ Core.CONTROL_BUTTONS = {
     weaponStone = { spells = { "createFirestone", "createSpellstone" }, art = "FirestoneButton", picture = "-02",
         missing = "enchant", label = "SET_ALERT_WEAPON_STONE" },
     soulstone = { spells = { "createSoulstone" }, art = "SoulstoneButton", picture = "-02",
-        missing = "soulstoneReady", label = "SET_ALERT_SOULSTONE" },
+        missing = "soulstoneReady", auras = Core.SOULSTONE_AURAS, label = "SET_ALERT_SOULSTONE" },
     unendingBreath = { spells = { "unendingBreath" }, art = "Ring", gameIcon = true, missing = "breath", alwaysShow = true },
 }
 
@@ -412,7 +428,7 @@ function Core.LearnSpellIds(key, name, items)
     return added
 end
 
-Core.SOULSTONE_USE_SPELL = 20707
+Core.SOULSTONE_USE_SPELL = Core.SOULSTONE_AURAS[1]
 
 Core.SOULSTONE_COOLDOWN = 1800
 
@@ -479,6 +495,9 @@ function Core.PickSpell(keys, isKnown)
     end
     return nil, nil
 end
+
+Core.MOUNT_SWIPE = 1.5
+Core.GLOBAL_COOLDOWN_SPELL = 61304
 
 function Core.SteedRank(spellID)
     for rank, key in ipairs({ "felsteed", "dreadsteed" }) do

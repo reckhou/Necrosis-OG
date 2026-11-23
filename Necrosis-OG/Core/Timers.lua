@@ -33,7 +33,7 @@ Core.TIMER_LIST_SETTINGS = { "timers.focusOn", "timers.focusOff", "timers.contro
 
 Core.MISSING_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.targetReminder", "timers.plateReminder" }
 
-Core.BAR_HIGHLIGHT_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.barHighlight" }
+Core.BAR_HIGHLIGHT_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.barHighlight", "timers.wrackHelper" }
 
 Core.SACRIFICE_SETTINGS = { "alerts.sacrificeOn", "alerts.sacrificeAt", "procBar.on" }
 Core.SACRIFICE_THRESHOLDS = { 10, 20, 30, 40, 50 }
@@ -98,11 +98,13 @@ Core.ENEMY_TIME_SIZE = 14
 Core.MULTI_ICON_GAP = 3
 Core.MULTI_ROW_GAP = 2
 Core.MULTI_BLOCK = Core.MULTI_HEAD + Core.MULTI_ROW_GAP + Core.MULTI_ICON
+Core.MULTI_TARGET_SCALE = 1.08
+Core.MULTI_TARGET_MARK_SIZE = 19
 Core.MULTI_ROW = 18
 
 Core.ROW_BACKDROP = { 0, 0, 0, 0.35 }
-Core.ROW_TARGET_TINT = { 0.6, 0.3, 1, 0.3 }
-Core.MULTI_INTERVAL = 0.5 -- sec of each list update
+Core.ROW_TARGET_TINT = { 0.6, 0.25, 1, 0.6 }
+Core.MULTI_INTERVAL = 0.5
 
 Core.FLASH_SECONDS, Core.FLASH_LOW, Core.FOCUS_DIM = 1, 0.5, 0.35
 
@@ -115,6 +117,33 @@ Core.EARLY_CAST_SECONDS = 5
 Core.HEALTH_COLOUR_POINTS = { { 0, 1, 0, 0 }, { 0.5, 1, 1, 0 }, { 1, 0, 1, 0 } }
 
 Core.FLASH_LEAD_SECONDS = 5
+
+Core.FLASH_LEAD_BY_SPELL = { baneOfAgony = 2, baneOfDoom = 0, corruption = 4, siphonLife = 2 }
+
+Core.FLASH_LEAD_BY_FAMILY = { bane = 2, corruption = 4, siphonLife = 2 }
+
+Core.LATENCY_STEP = 0.05
+Core.LATENCY_MAX = 1
+Core.LATENCY_CHECK_SECONDS = 10
+
+function Core.LatencySeconds(ms)
+    if type(ms) ~= "number" or ms ~= ms or ms <= 0 then return 0 end
+    local steps = math.ceil(math.min(ms / 1000, Core.LATENCY_MAX) / Core.LATENCY_STEP - 1e-9)
+    return steps * Core.LATENCY_STEP
+end
+
+function Core.AddLatency(lead, latency)
+    if lead <= 0 then return lead end
+    return lead + (latency or 0)
+end
+
+function Core.FlashLead(family, spellKey)
+    local lead = spellKey and Core.FLASH_LEAD_BY_SPELL[spellKey]
+    if lead == nil and family then lead = Core.FLASH_LEAD_BY_FAMILY[family] end
+    if lead == nil then lead = Core.FLASH_LEAD_SECONDS end
+    return lead
+end
+
 Core.FLASH_TEXT_COLOUR = { 1, 0.35, 0.2 }
 Core.FLASH_FAR_SECONDS = 86400
 
@@ -127,8 +156,10 @@ function Core.FlashFactor(time, phase)
 end
 
 -- curve point of time text colour, { sec left, r, g, b, alpha }
-function Core.TimeFlashPoints()
-    local lead, low = Core.FLASH_LEAD_SECONDS, Core.FLASH_LOW
+function Core.TimeFlashPoints(lead)
+    lead = lead or Core.FLASH_LEAD_SECONDS
+    if lead <= 0 then return { { 0, 1, 1, 1, 1 }, { Core.FLASH_FAR_SECONDS, 1, 1, 1, 1 } } end
+    local low = Core.FLASH_LOW
     local half = Core.FLASH_SECONDS / 2
     local colour = Core.FLASH_TEXT_COLOUR
     local function point(x, opacity)
@@ -137,10 +168,11 @@ function Core.TimeFlashPoints()
         return { x, mix(colour[1]), mix(colour[2]), mix(colour[3]), opacity }
     end
     local points = {}
-    for step = 0, math.floor(lead / half) do
+    for step = 0, math.floor(lead / half + 1e-9) do
         points[#points + 1] = point(step * half, step % 2 == 0 and 1 or low)
     end
-    if points[#points][1] < lead then points[#points + 1] = point(lead, 1) end
+    local last = points[#points]
+    if last[1] < lead - 1e-9 then points[#points + 1] = point(lead, 1) else last[5] = 1 end
     points[#points + 1] = { Core.FLASH_FAR_SECONDS, 1, 1, 1, 1 }
     return points
 end
@@ -172,29 +204,86 @@ function Core.NameplateIndex(unit)
     return number and tonumber(number) or nil
 end
 
-function Core.ParseSpellLength(description)
-    if type(description) ~= "string" then return nil end
-    local best, bestAt
-    for unit, factor in pairs({ sec = 1, min = 60 }) do
-        local at, _, number = string.find(description, "(%d+%.?%d*)%s*" .. unit)
-        if at and (not bestAt or at < bestAt) then best, bestAt = tonumber(number) * factor, at end
+Core.DURATION_WORDS = {
+    { word = "sec", seconds = 1 }, { word = "sek", seconds = 1 }, { word = "seg", seconds = 1 },
+    { word = "s", seconds = 1, whole = true },
+    { word = "min", seconds = 60 },
+    { word = "сек", seconds = 1 }, { word = "мин", seconds = 60 },
+    { word = "초", seconds = 1 }, { word = "분", seconds = 60 },
+    { word = "秒", seconds = 1 }, { word = "分钟", seconds = 60 }, { word = "分鐘", seconds = 60 },
+}
+
+local function LowerASCII(text) return (string.gsub(text, "[A-Z]", string.lower)) end
+local function IsLatin(word) return string.find(word, "[\128-\255]") == nil end
+
+function Core.AddDurationWord(format, seconds)
+    if type(format) ~= "string" or not isNumber(seconds) then return end
+    local word = string.gsub(format, "%%[%d%.]*[dfF]", "")
+    word = LowerASCII((string.gsub(string.gsub(word, "\194\160", ""), "[ \t\r\n%.:]", "")))
+    if word == "" then return end
+    for _, entry in ipairs(Core.DURATION_WORDS) do
+        if entry.word == word then return end
     end
-    if best and best > 0 then return best end
+    local latin = IsLatin(word)
+    if latin and string.find(word, "[^a-z]") then return end
+    table.insert(Core.DURATION_WORDS, { word = word, seconds = seconds, whole = latin and #word < 3 or nil })
+end
+
+local SPACES = { "\194\160", "\226\128\175", "\226\128\137", "\226\128\139" }
+
+local function SkipSpaces(text, at)
+    while true do
+        local plain = string.match(text, "^[ \t\r\n]+", at)
+        if plain then
+            at = at + #plain
+        else
+            local moved = false
+            for _, space in ipairs(SPACES) do
+                if string.sub(text, at, at + #space - 1) == space then at, moved = at + #space, true; break end
+            end
+            if not moved then return at end
+        end
+    end
+end
+
+local function UnitAt(text, at)
+    local lower = LowerASCII(string.sub(text, at, at + 23))
+    local letters = string.match(lower, "^[a-z]*")
+    for _, entry in ipairs(Core.DURATION_WORDS) do
+        local word = entry.word
+        if IsLatin(word) then
+            if (entry.whole and letters == word) or (not entry.whole and string.sub(letters, 1, #word) == word) then
+                return entry.seconds
+            end
+        elseif string.sub(lower, 1, #word) == word then
+            return entry.seconds
+        end
+    end
     return nil
 end
 
--- get the longest "N sec" or "N min", retrun sec
-function Core.ParseDebuffLength(description)
-    if type(description) ~= "string" then return nil end
-    local best
-    for number, unit in string.gmatch(description, "(%d+%.?%d*)%s*(%a+)") do
-        local prefix = string.sub(unit, 1, 3)
-        local factor = (prefix == "sec" and 1) or (prefix == "min" and 60) or nil
-        local seconds = factor and tonumber(number) and tonumber(number) * factor
-        if seconds and (not best or seconds > best) then best = seconds end
+-- get spell lengths from description, in sec
+function Core.DurationsIn(description)
+    local found = {}
+    if type(description) ~= "string" then return found end
+    for number, after in string.gmatch(description, "(%d+[%.,]?%d*)()") do
+        local unit = UnitAt(description, SkipSpaces(description, after))
+        local value = unit and tonumber((string.gsub(string.gsub(number, ",", "."), "%.$", "")))
+        if value and value > 0 then found[#found + 1] = value * unit end
     end
-    if best and best > 0 then return best end
-    return nil
+    return found
+end
+
+function Core.ParseSpellLength(description)
+    return Core.DurationsIn(description)[1]
+end
+
+function Core.ParseDebuffLength(description)
+    local best
+    for _, seconds in ipairs(Core.DurationsIn(description)) do
+        if not best or seconds > best then best = seconds end
+    end
+    return best
 end
 
 function Core.ControlSpellKeys()

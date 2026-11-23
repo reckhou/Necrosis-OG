@@ -257,6 +257,21 @@ function Core.CooldownText(remaining)
     return tostring(math.ceil(remaining))
 end
 
+function Core.AuraText(remaining)
+    if not isNumber(remaining) or remaining <= 0 then return "" end
+    if remaining >= 86400 * 1.5 then return math.ceil(remaining / 86400) .. "d" end
+    if remaining >= 3600 * 1.5 then return math.ceil(remaining / 3600) .. "h" end
+    if remaining >= 60 * 1.5 then return math.ceil(remaining / 60) .. "m" end
+    return tostring(math.floor(remaining))
+end
+
+Core.AURA_TEXT_RULES = {
+    { threshold = 0, step = 1, rounding = "Down", format = "%d" },
+    { threshold = 90, format = "%dm", components = { { div = 60, step = 1, rounding = "Up" } } },
+    { threshold = 5400, format = "%dh", components = { { div = 3600, step = 1, rounding = "Up" } } },
+    { threshold = 129600, format = "%dd", components = { { div = 86400, step = 1, rounding = "Up" } } },
+}
+
 Core.COOLDOWN_TEXT_RULES = {
     { threshold = 0, step = 1, rounding = "Up", format = "%d" },
     { threshold = 60, format = "%dm", components = { { div = 60, step = 1, rounding = "Down" } } },

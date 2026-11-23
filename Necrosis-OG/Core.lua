@@ -35,6 +35,7 @@ Core.DEFAULTS = {
         point = "CENTER", relativePoint = "CENTER", x = 0, y = -200,
         scale = 120,
         showCount = true,
+        showThreat = true,
         lowShards = 3,
         rotation = 180,
         spacing = 1,
@@ -85,6 +86,7 @@ Core.DEFAULTS = {
         targetReminder = { on = false, scale = 120, opacity = 65, x = 159, y = -166 },
         plateReminder = { on = true, scale = 100, opacity = 50, x = 0, y = -10 },
         barHighlight = { on = true },
+        wrackHelper = { on = true },
         focusOff = {},
         plateSettings = {},
         lastInSlot = {},
@@ -162,7 +164,6 @@ function Core.ApplyDefaults(saved, defaults)
     return saved
 end
 
--- round saved field to the step
 local function RoundField(table_, key, step)
     if type(table_) == "table" and Core.IsNumber(table_[key]) then table_[key] = Core.RoundToStep(table_[key], step) end
 end
@@ -307,7 +308,6 @@ function Core.TextSizeOrDefault(value)
     return Core.DEFAULTS.textSize
 end
 
--- window size in percent, or 100 when not on the list
 function Core.WindowScaleOrDefault(value)
     for _, size in ipairs(Core.WINDOW_SCALES) do
         if size == value then return value end

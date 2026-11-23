@@ -86,7 +86,7 @@ local shownPercent
 function Sphere.UpdateThreat()
     if not ring then return end
     local combat = InCombat()
-    if not combat and demoThreat == nil then
+    if not ns.db.sphere.showThreat or (not combat and demoThreat == nil) then
         ring:Hide()
         shownPercent = nil
         return
@@ -198,7 +198,6 @@ local UNIT_EVENTS = { UNIT_THREAT_SITUATION_UPDATE = "player" }
 
 local events = CreateFrame("Frame")
 
--- warlock only
 local function IsWarlock()
     local ok, _, class = pcall(UnitClass, "player")
     return ok and class == "WARLOCK"
@@ -256,7 +255,6 @@ function Sphere.ResetPositions()
     if frame then Sphere.RequestLayout() end
 end
 
--- delete all settings and reload ui
 function Sphere.ResetAll()
     if InCombat() then
         ns.Print(Text.RESET_IN_COMBAT)
@@ -283,3 +281,4 @@ end
 Sphere.Frame = function() return frame, fill, countText, ring, needle, glow end
 
 ns.OnSetting({ "sphere.showCount", "sphere.lowShards", "skin" }, function() Sphere.UpdateShards() end)
+ns.OnSetting("sphere.showThreat", Sphere.UpdateThreat)

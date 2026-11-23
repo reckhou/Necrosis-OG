@@ -58,27 +58,34 @@ local function On(key) return ns.db.timers[key .. "On"] ~= false end
 local function Now() return Plain(GetTime) or 0 end
 local function IsKnown(spellID) return Plain(C_SpellBook.IsSpellKnown, spellID) == true end
 
--- spell the demon knows now
 local function KnowsFamily(spellID)
     return IsKnown(spellID) or (type(IsPlayerSpell) == "function" and Plain(IsPlayerSpell, spellID) == true)
 end
 
-local healthCurve, timeOptions
+local healthCurve
+local timeOptions = {}
+local latency = 0
 
--- time text "7" under a minute, "1m" from a minute
-local function TimeOptions()
-    if timeOptions == nil then
-        local options = {}
-        local curve = ns.Durations.ColourCurve(Core.TimeFlashPoints())
-        if curve then options.textColor = { curve = curve, property = ns.Durations.RemainingProperty() } end
-        options.textFormatter = ns.Durations.Formatter("cooldown")
-        timeOptions = next(options) and options or false
-    end
-    return timeOptions or nil
+local function TimePoints(key)
+    if key == "focus" then return Core.TimeFlashPoints() end
+    return Core.TimeFlashPoints(Core.AddLatency(key, latency))
 end
 
-local function SetTime(button, time)
-    local options = TimeOptions()
+-- time text "7" under a minute, "1m" from a minute
+local function TimeOptions(lead)
+    lead = lead or "focus"
+    if timeOptions[lead] == nil then
+        local options = {}
+        local curve = ns.Durations.ColourCurve(TimePoints(lead))
+        if curve then options.textColor = { curve = curve, property = ns.Durations.RemainingProperty() } end
+        options.textFormatter = ns.Durations.Formatter("aura")
+        timeOptions[lead] = next(options) and options or false
+    end
+    return timeOptions[lead] or nil
+end
+
+local function SetTime(button, time, lead)
+    local options = TimeOptions(lead)
     if options and Call(button, "SetDurationText", time, options) then return end
     button:SetDurationText(time)
 end
@@ -142,11 +149,11 @@ local function IconFace(frame, size, font, square)
 end
 
 -- dress game aura frame as round icon
-local function RoundIcon(button, size, font, square)
+local function RoundIcon(button, size, font, square, lead)
     local icon, cooldown, time = IconFace(button, size, font, square)
     button:SetIcon(icon)
     if cooldown then Call(button, "SetDurationCooldown", cooldown) end
-    SetTime(button, time)
+    SetTime(button, time, lead)
 end
 
 local FOCUS_FONT = ns.Durations.TimeFont(Core.FOCUS_TIME_SIZE)
@@ -155,21 +162,32 @@ local ENEMY_FONT = ns.Durations.TimeFont(Core.ENEMY_TIME_SIZE)
 -- control on focus icon, 40 px
 local function FocusIcon(button) RoundIcon(button, Core.FOCUS_ICON, FOCUS_FONT) end
 
--- icon of all targets list, 28 px, no click
-local function EnemyIcon(button)
-    RoundIcon(button, Core.MULTI_ICON, ENEMY_FONT, true)
-    Call(button, "EnableMouse", false)
+local enemyIcons = {}
+
+local function EnemyIconFor(family)
+    if not enemyIcons[family] then
+        local lead = Core.FlashLead(family)
+        enemyIcons[family] = function(button)
+            RoundIcon(button, Core.MULTI_ICON, ENEMY_FONT, true, lead)
+            Call(button, "EnableMouse", false)
+        end
+    end
+    return enemyIcons[family]
 end
 
 -- look alike of game aura frame for demo
-local function DemoIcon(parent, size, font, square)
+local function DemoIcon(parent, size, font, square, lead)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetAllPoints(parent)
     frame:SetFrameLevel(parent:GetFrameLevel() + 2)
     frame.icon, frame.cooldown, frame.time = IconFace(frame, size, font, square)
     frame.span = ns.Durations.New()
-    frame.binding = ns.Durations.Text(frame.time, "cooldown", "")
-    ns.Durations.ColourText(frame.binding, Core.TimeFlashPoints())
+    frame.binding = ns.Durations.Text(frame.time, "aura", "")
+    local options = TimeOptions(lead)
+    local colour = options and options.textColor
+    if not (colour and Call(frame.binding, "SetTextColorCurve", colour.curve, colour.property)) then
+        ns.Durations.ColourText(frame.binding, Core.TimeFlashPoints(lead))
+    end
     frame:Hide()
     return frame
 end
@@ -191,17 +209,17 @@ end
 
 local FOCUS_STYLE = "icon"
 local ENEMY_STYLE = "icon"
-local INITIALIZE = { focus = { icon = FocusIcon }, multi = { icon = EnemyIcon } }
+local INITIALIZE = { focus = { icon = FocusIcon } }
 
 -- aura container for unit
-local function NewContainer(parent, unit, key, style, vertical, ids)
+local function NewContainer(parent, unit, key, style, vertical, ids, family)
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, "CustomAuraContainerTemplate")
     if not ok or not container then return nil end
     local axis = type(AnchorUtil) == "table" and AnchorUtil.FlowLayoutAxis or nil
     Call(container, "SetFlowLayoutAxis", EnumValue(axis, vertical and "Vertical" or "Horizontal", vertical and 1 or 0))
     Call(container, "SetUnit", unit)
     Call(container, "AddAuraGroup", key, FILTER, {
-        initializeFrame = INITIALIZE[key][style],
+        initializeFrame = key == "multi" and EnemyIconFor(family) or INITIALIZE[key][style],
         candidateFilters = { isFromPlayerOrPlayerPet = true, includeSpellIDs = ids },
         sortMethod = EnumValue(AuraContainerSortMethod, "ExpirationOnly", EnumValue(AuraContainerSortMethod, "Expiration", nil)),
         maxFrameCount = 1,
@@ -551,8 +569,7 @@ local function NewLine(list)
     line.backdrop:SetAllPoints()
     line.backdrop:SetColorTexture(unpack(Core.ROW_BACKDROP))
     line.tint = line:CreateTexture(nil, "BACKGROUND", nil, 1)
-    line.tint:SetPoint("TOPLEFT", line, "TOPLEFT", 0, 0)
-    line.tint:SetSize(Core.MULTI_WIDTH, Core.MULTI_HEAD)
+    line.tint:SetAllPoints()
     line.tint:SetColorTexture(unpack(Core.ROW_TARGET_TINT))
     line.tint:Hide()
     line.portrait = line:CreateTexture(nil, "ARTWORK")
@@ -562,9 +579,12 @@ local function NewLine(list)
     mask:SetTexture(Core.UiTexture("Mask"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     mask:SetAllPoints(line.portrait)
     line.portrait:AddMaskTexture(mask)
-    line.mark = line:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall"))
+    line.mark = line:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontHighlightSmall", Core.MULTI_TARGET_MARK_SIZE, true))
     line.mark:SetText(Text.MULTI_TARGET_MARK)
-    line.mark:SetPoint("RIGHT", line.portrait, "LEFT", -1, 0)
+    line.mark:SetTextColor(1, 1, 1)
+    line.mark:SetPoint("RIGHT", line.portrait, "LEFT", -2, 0)
+    line.mark:Hide()
+    line.isTarget = false
     local barWidth = Core.MULTI_WIDTH - Core.MULTI_HEAD - 2 - Core.MULTI_THREAT_ICON - 3 - Core.MULTI_THREAT_WIDTH
     line.bar = CreateFrame("StatusBar", nil, line)
     line.bar:SetSize(barWidth, Core.MULTI_HEALTH_BAR)
@@ -624,6 +644,15 @@ local function NewLine(list)
     return line
 end
 
+-- mark the target block and make it bigger
+local function SetTargetLook(line, target)
+    if line.isTarget == target then return end
+    line.isTarget = target
+    line.mark:SetShown(target)
+    line.tint:SetShown(target)
+    line:SetScale(target and Core.MULTI_TARGET_SCALE or 1)
+end
+
 -- picture of family when none debuff cast
 local function SlotTexture(slot)
     local last = ns.db.timers.lastInSlot and ns.db.timers.lastInSlot[slot.def.key]
@@ -666,7 +695,13 @@ local function UpdateWarn(id)
         warnSchedule.Cancel(id)
         return
     end
-    local startAt = endsAt - Core.FLASH_LEAD_SECONDS
+    local lead = slot.lead or Core.FlashLead(slot.def.key)
+    if lead <= 0 then
+        SetWarn(slot, false)
+        warnSchedule.At(id, endsAt)
+        return
+    end
+    local startAt = endsAt - Core.AddLatency(lead, latency)
     SetWarn(slot, slot.column and now >= startAt)
     warnSchedule.At(id, now >= startAt and endsAt or startAt)
 end
@@ -698,8 +733,10 @@ local function MarkCast(line, slot, spellID, at, length)
     local texture = Plain(C_Spell.GetSpellTexture, spellID)
     if texture then slot.icon:SetTexture(texture) end
     SetFlash(slot, true)
+    local seenLate = length == nil and latency / 2 or 0
     length = length or DebuffLength(spellID)
-    slot.endsAt = length and (at or Now()) + length or nil
+    slot.endsAt = length and (at or Now()) + length - seenLate or nil
+    slot.lead = Core.FlashLead(slot.def.key, Core.EnemySlotSpellKey(slot.def.key, spellID))
     UpdateWarn(slot.id)
 end
 
@@ -797,7 +834,7 @@ local function ArrangeMulti()
                 slot.frame:SetPoint("TOPLEFT", line, "TOPLEFT", (n - 1) * (Core.MULTI_ICON + Core.MULTI_ICON_GAP), row2)
                 if not slot.containers[ENEMY_STYLE] and not line.demo then
                     slot.containers[ENEMY_STYLE] = NewContainer(slot.frame, line.unit or "player", "multi", ENEMY_STYLE,
-                        true, slot.ids)
+                        true, slot.ids, slot.def.key)
                 end
                 for _, container in pairs(slot.containers) do PlaceContainer(container, slot.frame, true, 0) end
                 ChooseStyle(slot.containers, ENEMY_STYLE)
@@ -918,6 +955,7 @@ local function EndLine(line)
     line.stackTarget = nil
     line.portraitFor = nil
     line:Hide()
+    SetTargetLook(line, false)
     line:ClearAllPoints()
     ResetCasts(line)
 end
@@ -988,8 +1026,7 @@ local function Describe(line, candidate)
     line.portrait:SetDesaturated(false)
     line.bar:SetAlpha(1)
     line.health:SetTextColor(1, 1, 1)
-    line.mark:SetShown(candidate.target)
-    line.tint:SetShown(candidate.target)
+    SetTargetLook(line, candidate.target)
     if candidate.target then line.name:SetTextColor(1, 0.82, 0) else line.name:SetTextColor(1, 1, 1) end
     line:Show()
 end
@@ -1146,8 +1183,7 @@ local function Freeze(unit)
                 Stack()
             else
                 line.frozenAt = Now()
-                line.mark:Hide()
-                line.tint:Hide()
+                SetTargetLook(line, false)
                 line.name:SetTextColor(0.5, 0.5, 0.5)
                 line.health:SetTextColor(0.5, 0.5, 0.5)
                 line.portrait:SetDesaturated(true)
@@ -1295,6 +1331,22 @@ end
 
 table.insert(ns.onPetSpells, RenewPetContainers)
 
+local latencyTicker
+
+local function UpdateLatency()
+    local seconds = ns.Game.Latency()
+    if seconds == latency then return end
+    latency = seconds
+    for key, options in pairs(timeOptions) do
+        if key ~= "focus" and options and options.textColor then
+            ns.Durations.SetCurvePoints(options.textColor.curve, TimePoints(key))
+        end
+    end
+    for id in pairs(slotById) do UpdateWarn(id) end
+end
+
+function Debuffs.Latency() return latency end
+
 local function Create()
     if created then return end
     if InCombat() then
@@ -1302,6 +1354,10 @@ local function Create()
         return
     end
     created = true
+    UpdateLatency()
+    if not latencyTicker and C_Timer and C_Timer.NewTicker then
+        latencyTicker = C_Timer.NewTicker(Core.LATENCY_CHECK_SECONDS, UpdateLatency)
+    end
     if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
     CreateFocusList()
     local multi = CreateList("multi", Text.TIMER_LIST_MULTI, MultiWidth(), Core.MULTI_BLOCK)
@@ -1422,9 +1478,16 @@ local function CreateDemoParts()
     for i = 1, #Core.DEMO.enemies do
         local line = NewLine(multi)
         line.demo = true
-        for _, slot in ipairs(line.slots) do slot.demo = DemoIcon(slot.frame, Core.MULTI_ICON, ENEMY_FONT, true) end
+        for _, slot in ipairs(line.slots) do
+            slot.demo = DemoIcon(slot.frame, Core.MULTI_ICON, ENEMY_FONT, true, Core.FlashLead(slot.def.key))
+        end
         multi.demoLines[i] = line
     end
+end
+
+local function SetDemoTarget(line, target)
+    SetTargetLook(line, target)
+    if target then line.name:SetTextColor(1, 0.82, 0) else line.name:SetTextColor(1, 1, 1) end
 end
 
 -- fake enemy first row
@@ -1438,10 +1501,7 @@ local function DescribeDemo(line, index, def)
     line.health:SetFormattedText("%.0f%%", def.health)
     line.health:SetTextColor(1, 1, 1)
     ShowThreat(line, def.threat)
-    local target = def.target == true
-    line.mark:SetShown(target)
-    line.tint:SetShown(target)
-    if target then line.name:SetTextColor(1, 0.82, 0) else line.name:SetTextColor(1, 1, 1) end
+    SetDemoTarget(line, def.target == true)
 end
 
 -- one fake debuff
@@ -1483,8 +1543,11 @@ local function StartDemoData()
         end
     end
     UpdateFocusRange()
-    for i, line in ipairs(multi and multi.demoLines or {}) do
+    local demoLines = multi and multi.demoLines or {}
+    local targetIndex = 1
+    for i, line in ipairs(demoLines) do
         local def = Core.DEMO.enemies[i]
+        if def.target then targetIndex = i end
         line.seq = DEMO_SEQ + i
         DescribeDemo(line, i, def)
         line:Show()
@@ -1499,6 +1562,12 @@ local function StartDemoData()
                 end)
             end
         end
+    end
+    if #demoLines > 1 then
+        ns.DemoEvery(Core.DEMO.enemyTargetStep, function()
+            for i, line in ipairs(demoLines) do SetDemoTarget(line, i == targetIndex) end
+            targetIndex = targetIndex % #demoLines + 1
+        end)
     end
     Layout()
 end

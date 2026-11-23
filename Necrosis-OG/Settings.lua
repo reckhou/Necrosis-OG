@@ -61,7 +61,6 @@ local function RefreshAll()
     UpdateNote()
 end
 
--- apply the change then refresh all controls
 local function Changed(apply)
     return function(...)
         apply(...)
@@ -153,7 +152,6 @@ local function GreyedBy(widget, on)
     return widget
 end
 
--- dropdown list of the game
 local function Dropdown(page, x, y, text, options, get, set, width, maxRows)
     local label = text and Label(page, text, x, y)
     local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
@@ -455,8 +453,8 @@ local function SetLocked(on)
     if ns.Alerts.Refresh then ns.Alerts.Refresh() end
 end
 
--- small info icon with tooltip after the heading
-local function InfoIcon(page, after, title, lines)
+-- small info icon with tooltip after the label
+local function InfoIcon(page, after, title, describe)
     local icon = CreateFrame("Frame", nil, page)
     icon:SetSize(14, 14)
     icon:SetPoint("LEFT", after, "RIGHT", 4, 0)
@@ -466,7 +464,7 @@ local function InfoIcon(page, after, title, lines)
     icon.texture:SetTexture("Interface\\FriendsFrame\\InformationIcon")
     ns.Tips.Attach(icon, function(tooltip)
         ns.Tips.Title(tooltip, title)
-        for _, line in ipairs(lines) do ns.Tips.Line(tooltip, line) end
+        describe(tooltip)
     end, "ANCHOR_RIGHT", true)
     return icon
 end
@@ -505,7 +503,6 @@ local function MacroIcon(page, x, y, key)
     return icon
 end
 
--- section heading, one color per letter
 local function Heading(page, text, y)
     return Label(page, Core.Gradient(text, Core.GRADIENT_HEADING), 0, y, "SystemFont_Shadow_Small_Outline")
 end
@@ -547,14 +544,16 @@ function Window.ConfirmPositions()
     Confirm("positions", Text.SET_RESET_POSITIONS_CONFIRM, Text.SET_RESET_YES, function() ns.Sphere.ResetPositions() end)
 end
 
--- general tab
 local function GeneralPage(page)
     Heading(page, Text.SET_HEAD_FOCUS, 0)
     Check(page, 0, -16, Text.SET_AUTO_FOCUS, function() return db().buttons.autoFocus == true end, function(on)
         ns.SetSetting("buttons.autoFocus", on)
     end)
     local macroHead = Heading(page, Text.SET_FOCUS_MACROS, -48)
-    InfoIcon(page, macroHead, Text.SET_FOCUS_MACROS, { Text.TIP_MACROS_BARS, Text.TIP_MACROS_KEYS })
+    InfoIcon(page, macroHead, Text.SET_FOCUS_MACROS, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_MACROS_BARS)
+        ns.Tips.Line(tooltip, Text.TIP_MACROS_KEYS)
+    end)
     local petIcons = {}
     for i, key in ipairs(Core.MACRO_ROW) do
         local icon = MacroIcon(page, 4 + MACRO_GAP * (i - 1), -64, key)
@@ -612,6 +611,9 @@ local function SpherePage(page)
         function() return Core.ClampThreshold(db().sphere.lowShards) end, function(value)
             ns.SetSetting("sphere.lowShards", value)
         end)
+    Check(page, 0, -102, Text.SET_SHOW_THREAT, function() return db().sphere.showThreat end, function(on)
+        ns.SetSetting("sphere.showThreat", on)
+    end)
     local function ClickChoices()
         local choices = { { "none", Text.SET_CLICK_NONE }, { "bags", Text.SET_CLICK_BAGS } }
         for _, entry in ipairs(Core.UTILITY_MENU) do
@@ -697,7 +699,6 @@ local SWITCH_STEP = RIGHT_COLUMN
 
 local function KeyName(key) return SpellName(Core.SPELLS[key][1]) or key end
 
--- controls tab
 local function ControlsPage(page)
     local timers = function() return db().timers end
 
@@ -731,7 +732,9 @@ local HEAD_ROW = 28
 local SECTION_SPACE = 8
 local SLIDER_TOP = -14
 local SECTION_ROW = 46
-local TRACK_HEIGHT = 40 + #Core.ENEMY_SLOTS * ROW_HEIGHT
+local DEBUFFS_SCROLL_RISE = 8
+local TRACK_TOP = -2
+local TRACK_HEIGHT = 32 - TRACK_TOP + #Core.ENEMY_SLOTS * ROW_HEIGHT
 
 local SCROLL_BAR_X = 4
 
@@ -813,11 +816,55 @@ local function ReminderSection(content, title, saved, clamp, low, high)
     return section
 end
 
+-- wrack switch and help below the glow switch
+local function WrackRotationOption(body, glowOn)
+    local function KnowsWrack() return Core.HighestKnown(Core.SPELLS.wrack, FamilyKnown) ~= nil end
+    local box = GreyedBy(Check(body, 4, 0, Text.SET_SMART_WRACK_ROTATION,
+        function() return db().timers.wrackHelper.on ~= false end,
+        function(on) ns.SetSetting("timers.wrackHelper.on", on) end, 136),
+        function() return glowOn() and KnowsWrack() end)
+    local spellIcon = box:CreateTexture(nil, "ARTWORK")
+    spellIcon:SetSize(16, 16)
+    spellIcon:SetPoint("LEFT", box, "RIGHT", 2, 0)
+    spellIcon:SetTexture(Plain(C_Spell.GetSpellTexture, Core.SPELLS.wrack[1]))
+    box.label:ClearAllPoints()
+    box.label:SetPoint("LEFT", spellIcon, "RIGHT", 4, 0)
+
+    local widened = false
+    local function ResetWidth(tooltip)
+        if not widened then return end
+        widened = false
+        tooltip:SetMinimumWidth(0, false)
+    end
+    GameTooltip:HookScript("OnTooltipCleared", ResetWidth)
+    GameTooltip:HookScript("OnHide", ResetWidth)
+    local info = InfoIcon(body, box.label, Text.SET_SMART_WRACK_ROTATION, function(tooltip)
+        local wrack = SpellName(Core.SPELLS.wrack[1]) or "?"
+        local bolt = SpellName(Core.SPELLS.shadowBolt[1]) or "?"
+        ns.Tips.Line(tooltip, Text.HELPER_INTRO)
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Line(tooltip, "1. " .. string.format(Text.HELPER_KEEP_DOTS, wrack))
+        ns.Tips.Line(tooltip, "2. " .. string.format(Text.HELPER_INSTANT_BOLT, bolt))
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Line(tooltip, string.format(Text.HELPER_REFRESH, wrack))
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Line(tooltip, string.format(Text.HELPER_CLIPPING, wrack, bolt))
+        if not KnowsWrack() then ns.Tips.Note(tooltip, Text.HELPER_UNKNOWN_NOTE) end
+        if not glowOn() then ns.Tips.Note(tooltip, Text.HELPER_GLOW_NOTE) end
+        tooltip:SetMinimumWidth(340, true)
+        widened = true
+    end)
+    table.insert(ns.onSpellsChanged, function()
+        box:Refresh()
+        ns.Tips.Redraw(info)
+    end)
+end
+
 local function DebuffsPage(page)
     local timers = function() return db().timers end
     local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
-    scroll:SetSize(PAGE_WIDTH, PAGE_HEIGHT)
+    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 0, DEBUFFS_SCROLL_RISE)
+    scroll:SetSize(PAGE_WIDTH, PAGE_HEIGHT + DEBUFFS_SCROLL_RISE)
     if scroll.ScrollBar then
         scroll.ScrollBar:ClearAllPoints()
         scroll.ScrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", SCROLL_BAR_X, -16)
@@ -826,6 +873,17 @@ local function DebuffsPage(page)
     local content = CreateFrame("Frame", nil, scroll)
     content:SetSize(PAGE_WIDTH, PAGE_HEIGHT)
     scroll:SetScrollChild(content)
+
+    local track = CreateFrame("Frame", nil, content)
+    track:SetSize(PAGE_WIDTH, TRACK_HEIGHT)
+    track:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+    Heading(track, Text.SET_TRACK, TRACK_TOP)
+    Label(track, Text.SET_ORDER_HELP, 0, TRACK_TOP - 16, "GameFontDisableSmall")
+    OrderList(track, 0, TRACK_TOP - 32, PAGE_WIDTH - 10, #Core.ENEMY_SLOTS * ROW_HEIGHT, FamilySource())
+
+    local glow = NewSection(content, Text.SET_BAR_HIGHLIGHT, function() return timers().barHighlight.on ~= false end,
+        "timers.barHighlight.on", 26)
+    WrackRotationOption(glow.body, glow.on)
 
     local multi = NewSection(content, Text.SET_MULTI_ON, function() return timers().multiOn ~= false end,
         "timers.multiOn", -SLIDER_TOP + 30)
@@ -840,20 +898,12 @@ local function DebuffsPage(page)
     local target = ReminderSection(content, Text.SET_MISSING_TARGET, "targetReminder")
     local plate = ReminderSection(content, Text.SET_MISSING_PLATE, "plateReminder", Core.ClampPlateOffset,
         Core.PLATE_OFFSET_MIN, Core.PLATE_OFFSET_MAX)
-    local glow = NewSection(content, Text.SET_BAR_HIGHLIGHT, function() return timers().barHighlight.on ~= false end,
-        "timers.barHighlight.on", 0)
-
-    local track = CreateFrame("Frame", nil, content)
-    track:SetSize(PAGE_WIDTH, TRACK_HEIGHT)
-    Heading(track, Text.SET_TRACK, HEAD_TOP)
-    Label(track, Text.SET_ORDER_HELP, 0, HEAD_TOP - 16, "GameFontDisableSmall")
-    OrderList(track, 0, HEAD_TOP - 32, PAGE_WIDTH - 10, #Core.ENEMY_SLOTS * ROW_HEIGHT, FamilySource())
 
     local layout = {}
     function layout:Refresh()
-        local y = 0
-        for _, section in ipairs({ multi, target, plate, glow }) do
-            local on = section.on() == true
+        local y = TRACK_HEIGHT + SECTION_SPACE
+        for _, section in ipairs({ glow, multi, target, plate }) do
+            local on = section == glow or section.on() == true
             section.body:SetShown(on)
             local height = HEAD_ROW + (on and section.bodyHeight or 0)
             section:ClearAllPoints()
@@ -861,9 +911,7 @@ local function DebuffsPage(page)
             section:SetHeight(height)
             y = y + height + SECTION_SPACE
         end
-        track:ClearAllPoints()
-        track:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
-        content:SetHeight(y + TRACK_HEIGHT)
+        content:SetHeight(y - SECTION_SPACE)
     end
     controls[#controls + 1] = layout
 end
@@ -1222,6 +1270,7 @@ local function Create()
     afterCombatNote:SetText(Text.SETTINGS_AFTER_COMBAT)
     afterCombatNote:Hide()
 
+    local lastTab
     for i, def in ipairs(PAGES) do
         local page = Window.NewPage(frame)
         def[3](page)
@@ -1230,15 +1279,16 @@ local function Create()
 
         local tab = CreateFrame("CheckButton", nil, frame)
         tab:SetSize(32, 32)
-        if i == 1 then
-            tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -32, TAB_TOP)
-        else
-            tab:SetPoint("TOPLEFT", tabs[i - 1], "BOTTOMLEFT", 0, -TAB_GAP)
-        end
         local art = tab:CreateTexture(nil, "BACKGROUND")
         art:SetSize(64, 64)
         art:SetTexture(TAB_ART)
+        if lastTab then
+            tab:SetPoint("TOPLEFT", lastTab, "BOTTOMLEFT", 0, -TAB_GAP)
+        else
+            tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -32, TAB_TOP)
+        end
         art:SetPoint("TOPLEFT", -3, 11)
+        lastTab = tab
         if type(def[2]) == "number" then
             tab:SetNormalTexture(Plain(C_Spell.GetSpellTexture, def[2]) or "Interface\\Icons\\INV_Misc_QuestionMark")
         else
@@ -1314,11 +1364,11 @@ function NecrosisOG_OnAddonCompartmentClick()
     Window.Toggle()
 end
 
--- print /nog commands
 local function PrintHelp()
     ns.Print(Text.HELP_OPEN)
     ns.Print(Text.HELP_WELCOME)
     ns.Print(Text.HELP_TIMER)
+    ns.Print(Text.HELP_HELPER)
     ns.Print(Text.HELP_HELP)
 end
 
@@ -1331,6 +1381,8 @@ function Window.Command(message)
             return
         end
         if command == "welcome" then ns.Welcome.Show() else Window.Open() end
+    elseif command == "helper" then
+        for _, line in ipairs(ns.BarHighlight and ns.BarHighlight.Report() or {}) do ns.Print(line) end
     elseif command == "timer" then
         local seconds, name = Core.ParseTimerCommand(rest)
         if not (seconds and ns.Timers and ns.Timers.StartCustom(name or Text.CUSTOM_TIMER_NAME, seconds)) then

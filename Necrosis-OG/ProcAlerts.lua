@@ -88,7 +88,6 @@ end
 
 local DEMO_LENGTH = #Core.DEMO.procs * Core.DEMO.procStep
 
--- sweep and number over the icon
 local function AddTime(item)
     local face = item.face
     local swipe = ns.Durations.NewSwipe(face, { optional = true, reverse = true, shape = "mask", level = 4,
@@ -163,7 +162,7 @@ local function RefreshAll()
         for _, proc in ipairs(PROCS) do
             glowing[proc.key] = active[proc.key] and SwitchedOn(proc.key) and not glowSeen[proc.key] or nil
         end
-        ns.BarHighlight.SetProcs(glowing)
+        ns.BarHighlight.SetProcs(glowing, active)
     end
 end
 
@@ -210,7 +209,6 @@ local function CreateIcon(proc)
     if proc.key ~= "antiFear" then AddTime(item) end
 end
 
--- check cast times for each proc
 function ProcAlerts.Check(silent)
     silent = silent == true
     if not glowSeen.shadowTrance and SwitchedOn("shadowTrance") then
@@ -321,7 +319,6 @@ end
 
 table.insert(ns.onSphere, Create)
 
--- anti fear warn on or off
 function ProcAlerts.SetActive(key, on)
     if BY_KEY[key] then SetActive(BY_KEY[key], on) end
 end

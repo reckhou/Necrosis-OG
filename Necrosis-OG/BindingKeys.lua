@@ -25,9 +25,6 @@ local Plain, IsSecret = Game.Plain, Game.IsSecret
 local BindingKeys = {}
 ns.BindingKeys = BindingKeys
 
-local BUTTONS_PER_BAR = 12
-local FALLBACK_BARS = { "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarLeftButton",
-    "MultiBarRightButton", "MultiBar5Button", "MultiBar6Button", "MultiBar7Button" }
 local FLASH = 0.12
 local LIMIT = 2
 
@@ -36,18 +33,23 @@ local hooked = {}
 local changed = {}
 local pushed = {}
 local down = {}
+local writing = false
+local later = {}
+local laterSet, refreshSet = false, false
 
--- find all action bar button of blizzard
-local function FindButtons()
-    local names = ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames or FALLBACK_BARS
-    local found = {}
-    for _, prefix in ipairs(names) do
-        for i = 1, BUTTONS_PER_BAR do
-            local button = _G[prefix .. i]
-            if type(button) == "table" and button.GetName then found[#found + 1] = button end
-        end
-    end
-    return found
+local function After(seconds, fn)
+    if C_Timer and C_Timer.After then C_Timer.After(seconds, fn) end
+end
+
+local function Write(hotkey, text)
+    writing = true
+    hotkey:SetText(text)
+    writing = false
+end
+
+local function KeysHidden(button)
+    local config = button.config
+    return type(config) == "table" and type(config.hideElements) == "table" and config.hideElements.hotkey == true
 end
 
 local function ActionText(slot)
@@ -68,36 +70,80 @@ end
 -- show necrosis key on the slot that have our macro
 local function ShowKey(button)
     local hotkey = button.HotKey
-    local key = hotkey and MacroKey(button)
+    local key = hotkey and not KeysHidden(button) and MacroKey(button)
     if not key then return end
     local bound = GetBindingKey(ns.Bindings.Command(key))
     if not bound then return end
     local text = GetBindingText(bound, 1)
     if type(text) ~= "string" or text == "" then return end
-    hotkey:SetText(text)
+    Write(hotkey, text)
     hotkey:Show()
     changed[button] = true
 end
 
+-- get the shortcut of the action slot
+local function OwnKey(button)
+    if type(button.UpdateHotkeys) == "function" then
+        pcall(button.UpdateHotkeys, button, button.buttonType)
+        return
+    end
+    local hotkey = button.HotKey
+    if not hotkey or type(button.GetHotkey) ~= "function" then return end
+    local ok, key = pcall(button.GetHotkey, button)
+    if ok and type(key) == "string" and key ~= "" and not KeysHidden(button) then
+        Write(hotkey, key)
+        hotkey:Show()
+    else
+        Write(hotkey, RANGE_INDICATOR or "")
+        hotkey:Hide()
+    end
+end
+
+local function ShowKeyLater(button)
+    later[button] = true
+    if laterSet then return end
+    laterSet = true
+    After(0, function()
+        laterSet = false
+        local list = later
+        later = {}
+        for each in pairs(list) do ShowKey(each) end
+    end)
+end
+
+local function Hook(button)
+    if hooked[button] then return end
+    if type(button.UpdateHotkeys) == "function" then
+        hooked[button] = true
+        hooksecurefunc(button, "UpdateHotkeys", function() ShowKey(button) end)
+    elseif type(button.HotKey) == "table" and type(button.HotKey.SetText) == "function" then
+        hooked[button] = true
+        hooksecurefunc(button.HotKey, "SetText", function() if not writing then ShowKeyLater(button) end end)
+    end
+end
+
 local function Refresh()
-    buttons = FindButtons()
+    refreshSet = false
+    buttons = ns.ActionButtons.Bar()
     for _, button in ipairs(buttons) do
-        if not hooked[button] and type(button.UpdateHotkeys) == "function" then
-            hooked[button] = true
-            hooksecurefunc(button, "UpdateHotkeys", function() ShowKey(button) end)
-        end
+        Hook(button)
         if MacroKey(button) then
             ShowKey(button)
         elseif changed[button] then
             changed[button] = nil
-            if type(button.UpdateHotkeys) == "function" then pcall(button.UpdateHotkeys, button, button.buttonType) end
+            OwnKey(button)
         end
     end
 end
 
 BindingKeys.Refresh = Refresh
 
--- fake the pressed look on slot while key is down
+local function RefreshSoon()
+    if refreshSet then return end
+    refreshSet = true
+    After(0, Refresh)
+end
+
 local function SetPushed(key, on)
     for _, button in ipairs(buttons) do
         if MacroKey(button) == key and button.GetButtonState and button.SetButtonState then
@@ -113,10 +159,7 @@ local function SetPushed(key, on)
     end
 end
 
-local function After(seconds, fn)
-    if C_Timer and C_Timer.After then C_Timer.After(seconds, fn) end
-end
-
+-- fake the pressed look on slot while key is down
 function BindingKeys.Press(key, isDown)
     if isDown then
         local token = {}
@@ -143,7 +186,8 @@ table.insert(ns.onSphere, function()
         "UPDATE_BONUS_ACTIONBAR", "UPDATE_BINDINGS", "UPDATE_MACROS" }) do
         events:RegisterEvent(event)
     end
-    events:SetScript("OnEvent", function() After(0, Refresh) end)
+    events:SetScript("OnEvent", RefreshSoon)
+    ns.ActionButtons.OnChange(RefreshSoon)
     Refresh()
 end)
 

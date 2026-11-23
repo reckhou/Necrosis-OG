@@ -25,6 +25,7 @@ local Speech = {}
 ns.Speech = Speech
 
 local last = {}
+local queue = {}
 local spokeAt = {}
 
 local IsSecret, Plain = ns.Game.IsSecret, ns.Game.Plain
@@ -85,6 +86,24 @@ local function CannotCastNow(subject)
     })
 end
 
+local function SpellUnusable(subject)
+    if not (C_Spell and C_Spell.IsSpellUsable) then return false end
+    return Core.SpeechSpellUnusable(subject, function(id) return Plain(C_Spell.IsSpellUsable, id) end)
+end
+
+-- take next speech preset from shuffled list
+local function NextSet(subject, sets)
+    local order = queue[subject]
+    if not order or #order == 0 then
+        order = Core.SpeechOrder(sets, last[subject], math.random)
+        queue[subject] = order
+    end
+    local index = table.remove(order, 1)
+    if not index then return nil end
+    last[subject] = index
+    return sets[index]
+end
+
 -- speak line for subject, targetKind is nil, "target" or "friend"
 function Speech.Speak(subject, targetKind)
     local settings = ns.db.speech
@@ -95,16 +114,13 @@ function Speech.Speak(subject, targetKind)
     if spokeAt[subject] and now - spokeAt[subject] < Core.SpeechCooldown(subject) then
         return
     end
-    if IsCasting() or CannotCastNow(subject) then
+    if IsCasting() or CannotCastNow(subject) or SpellUnusable(subject) then
         return
     end
     local set = Core.SpeechPromo(subject, Text)
     if not Core.ChoosePromo(set, math.random) then
-        local sets = Core.SpeechSets(subject, settings.sets, Text)
-        local index = Core.PickSpeech(sets, last[subject], math.random)
-        if not index then return end
-        last[subject] = index
-        set = sets[index]
+        set = NextSet(subject, Core.SpeechSets(subject, settings.sets, Text))
+        if not set then return end
     end
     spokeAt[subject] = now
     local names = { player = Plain(UnitName, "player"), target = TargetName(targetKind), pet = settings.petNames[subject] }
@@ -124,9 +140,10 @@ function Speech.Speak(subject, targetKind)
     end
 end
 
-function Speech.Reset() last, spokeAt = {}, {} end
+function Speech.Reset() last, spokeAt, queue = {}, {}, {} end
 
 local function OwnSets(subject)
+    queue[subject] = nil
     local saved = ns.db.speech.sets
     if type(saved[subject]) ~= "table" then saved[subject] = Core.SpeechSets(subject, nil, Text) end
     return saved[subject]
@@ -150,9 +167,14 @@ function Speech.DeleteSet(subject, index)
     local sets = OwnSets(subject)
     if sets[index] then table.remove(sets, index) end
     last[subject] = nil
+    queue[subject] = nil
 end
 
-function Speech.Restore(subject) ns.db.speech.sets[subject] = nil end
+function Speech.Restore(subject)
+    ns.db.speech.sets[subject] = nil
+    queue[subject] = nil
+    last[subject] = nil
+end
 
 local function RememberPet()
     local key = ns.db.buttons.lastDemon

@@ -24,12 +24,9 @@ local Plain, IsSecret = Game.Plain, Game.IsSecret
 local BarHighlight = {}
 ns.BarHighlight = BarHighlight
 
--- glow the next debuff to cast on action bar button
+-- glow the next spell on action bars
 local FILTER = "HARMFUL|PLAYER"
 local LAYOUT = "DisableUntrustedLayoutScriptsTemplate"
-local BUTTONS_PER_BAR = 12
-local FALLBACK_BARS = { "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarLeftButton",
-    "MultiBarRightButton", "MultiBar5Button", "MultiBar6Button", "MultiBar7Button" }
 
 local families = {}
 local glows = {}
@@ -46,6 +43,17 @@ local procGlows = {}
 local procShown = {}
 local scanPending = false
 
+local WRACK_IDS = Core.SpellIdSet({ "wrack" })
+local wrackKnown = false
+local channelling = false
+local procActive = {}
+local rotGlows = {}
+local rotShown = {}
+
+local estimates = {}
+local lengths = {}
+local rotationTicker
+
 local function Knows(id) return Plain(C_SpellBook.IsSpellKnown, id) == true end
 
 local function KnowsFamily(id) return Knows(id) or Plain(IsPlayerSpell, id) == true end
@@ -59,16 +67,23 @@ local function ReadFamilies()
         if slot.talent then
             family.brand = Game.SpellName(Core.SEARING_PAIN)
             local name = Game.SpellName(Core.SPELLS[slot.keys[1]][1])
-            if name then family.spells[1] = { name = name, ranks = Core.SPELLS[slot.keys[1]] } end
+            if name then family.spells[1] = { name = name, ranks = Core.SPELLS[slot.keys[1]], key = slot.keys[1] } end
         else
             for _, key in ipairs(slot.keys) do
                 for _, id in ipairs(Core.SPELLS[key]) do family.casts[id] = true end
                 local name = Game.SpellName(Core.HighestKnown(Core.SPELLS[key], Knows))
-                if name then family.spells[#family.spells + 1] = { name = name, ranks = Core.SPELLS[key] } end
+                if name then family.spells[#family.spells + 1] = { name = name, ranks = Core.SPELLS[key], key = key } end
             end
         end
         families[#families + 1] = family
     end
+    wrackKnown = false
+    for id in pairs(WRACK_IDS) do wrackKnown = wrackKnown or KnowsFamily(id) end
+end
+
+local function HelperOn()
+    local timers = ns.db.timers
+    return wrackKnown and timers.barHighlight.on ~= false and timers.wrackHelper.on ~= false
 end
 
 local function UpdateReadability()
@@ -108,18 +123,6 @@ local function ActionSpell(slot)
     return nil
 end
 
-local function BarButtons()
-    local names = ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames or FALLBACK_BARS
-    local buttons = {}
-    for _, prefix in ipairs(names) do
-        for i = 1, BUTTONS_PER_BAR do
-            local button = _G[prefix .. i]
-            if type(button) == "table" and button.GetName then buttons[#buttons + 1] = button end
-        end
-    end
-    return buttons
-end
-
 local function NewContainer(parent, family, width)
     local container = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate," .. LAYOUT)
     container:SetEnabled(false)
@@ -142,7 +145,7 @@ local function NewContainer(parent, family, width)
 end
 
 -- glow frame on top of the button
-local function NewGlow(button, place)
+local function NewGlow(button, place, all)
     local width, height = button:GetSize()
     local size = Core.BAR_GLOW_SIZE
     local clip = CreateFrame("Frame", nil, button, LAYOUT)
@@ -151,7 +154,8 @@ local function NewGlow(button, place)
     clip:SetClipsChildren(true)
     clip:SetSize(width * size, height * size)
     clip:SetPoint("CENTER", button, "CENTER", 0, 0)
-    local start, widths = Core.BarGlowChain(place)
+    local start, widths
+    if all then start, widths = Core.BarGlowAllChain(#families) else start, widths = Core.BarGlowChain(place) end
     local chain, before = {}, nil
     for i, length in ipairs(widths) do
         local container = NewContainer(clip, families[i], length)
@@ -176,7 +180,7 @@ end
 local function Place(glow, native)
     if glow.native == native then return end
     glow.alert:ClearAllPoints()
-    if native then
+    if native and #glow.chain > 0 then
         glow.alert:SetPoint("CENTER", glow.chain[#glow.chain], "TOPRIGHT", 0, 0)
     else
         glow.alert:SetPoint("CENTER", glow.clip, "CENTER", 0, 0)
@@ -221,6 +225,125 @@ local function NextPlace()
     return nil
 end
 
+local function Now() return Plain(GetTime) or 0 end
+local function TargetGuid() return Plain(UnitGUID, "target") end
+
+-- read aura time or use last cast time
+local function TimeLeft(family, native, now)
+    if not native then
+        for _, spell in ipairs(family.spells) do
+            local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "target", spell.name, FILTER)
+            if ok and type(aura) == "table" and not IsSecret(aura) then
+                local ends = aura.expirationTime
+                if type(ends) == "number" and not IsSecret(ends) and ends > 0 then return ends - now, spell.key, "aura" end
+            end
+        end
+    end
+    local guid = TargetGuid()
+    local cast = (estimates.target and estimates.target[family.key])
+        or (guid and estimates[guid] and estimates[guid][family.key])
+    if cast then return cast.endsAt - now, cast.spellKey, "cast" end
+    return nil
+end
+
+local function SoonPlace(native, now)
+    local latency = Game.Latency()
+    for place, family in ipairs(families) do
+        local left, spellKey = TimeLeft(family, native, now)
+        if left and left > 0 then
+            local lead = Core.FlashLead(family.key, spellKey)
+            if lead > 0 and left <= Core.AddLatency(lead, latency) then return place end
+        end
+    end
+    return nil
+end
+
+local function DebuffLength(spellID, family)
+    if family.brand then return Core.DEMONIC_BRAND_SECONDS end
+    if lengths[spellID] == nil then
+        lengths[spellID] = Core.ParseDebuffLength(Plain(C_Spell.GetSpellDescription, spellID))
+    end
+    return lengths[spellID]
+end
+
+local lastCast
+
+local function OnCast(spellID)
+    if type(spellID) ~= "number" or IsSecret(spellID) then
+        lastCast = "secret"
+        return
+    end
+    local place = PlaceOfSpell(spellID)
+    lastCast = tostring(spellID)
+    if not place then return end
+    local family = families[place]
+    local length = DebuffLength(spellID, family)
+    lastCast = lastCast .. " " .. family.key .. " " .. tostring(length)
+    if not length then return end
+    local cast = { endsAt = Now() + length - Game.Latency() / 2,
+        spellKey = family.brand and "demonicBrand" or Core.EnemySlotSpellKey(family.key, spellID) }
+    for _, key in ipairs({ "target", TargetGuid() or "target" }) do
+        estimates[key] = estimates[key] or {}
+        estimates[key][family.key] = cast
+    end
+end
+
+local function PruneEstimates()
+    local now = Now()
+    for key, casts in pairs(estimates) do
+        local any = false
+        for family, cast in pairs(casts) do
+            if cast.endsAt <= now then casts[family] = nil else any = true end
+        end
+        if not any then estimates[key] = nil end
+    end
+end
+
+local function TargetOk()
+    return ns.db.timers.barHighlight.on ~= false and Plain(UnitCanAttack, "player", "target") == true
+        and Plain(UnitIsDeadOrGhost, "target") == false
+end
+
+local function BoltFirst()
+    return HelperOn() and TargetOk() and not channelling and procActive.shadowTrance == true
+end
+
+-- light the spell picked by wrack rotation
+local function RefreshRotation()
+    local active = HelperOn() and TargetOk()
+    local native = Game.InCombat() or nativeRequired
+    local choice, soon
+    if active then
+        soon = SoonPlace(native, Now())
+        choice = Core.RotationChoice({ channelling = channelling, missing = not native and NextPlace() or nil,
+            soon = soon, bolt = procActive.shadowTrance == true })
+    end
+    local boltFirst = BoltFirst()
+    for _, glow in ipairs(rotShown) do
+        if active and native then
+            if not glow.watching then Watch(glow, true) end
+        elseif glow.watching then
+            Watch(glow, false)
+        end
+        Place(glow, native and not (boltFirst and glow.kind == "bolt"))
+        local on = choice ~= nil and glow.kind == choice and (choice ~= "refresh" or glow.place == soon)
+        glow.alert:SetShown(on)
+        glow.clip:SetShown(on)
+        if on then Play(glow) end
+    end
+    BarHighlight.choice = choice
+end
+
+local function UpdateTicker()
+    local wanted = HelperOn() and TargetOk() and #rotShown > 0
+    if wanted and not rotationTicker and C_Timer and C_Timer.NewTicker then
+        rotationTicker = C_Timer.NewTicker(0.1, RefreshRotation)
+    elseif not wanted and rotationTicker then
+        rotationTicker:Cancel()
+        rotationTicker = nil
+    end
+end
+
 local function NewProcGlow(button, key)
     local width, height = button:GetSize()
     local alert = CreateFrame("Frame", nil, button, "ActionButtonSpellAlertTemplate")
@@ -232,18 +355,22 @@ local function NewProcGlow(button, key)
 end
 
 local function RefreshProcs()
+    local helper = HelperOn()
     for _, glow in ipairs(procShown) do
-        local on = procOn[glow.key] == true
+        local on = procOn[glow.key] == true and not (helper and (channelling or glow.key == "shadowTrance"))
         glow.alert:SetShown(on)
         if on then Play(glow) end
     end
 end
 
--- proc glow for shadow bolt and soul fire, call from proc alert
-function BarHighlight.SetProcs(state)
-    procOn = {}
-    for key in pairs(PROC_SPELLS) do procOn[key] = state[key] == true or nil end
-    RefreshProcs()
+-- update the shadow bolt and soul fire glows
+function BarHighlight.SetProcs(state, active)
+    procOn, procActive = {}, {}
+    for key in pairs(PROC_SPELLS) do
+        procOn[key] = state[key] == true or nil
+        procActive[key] = active and active[key] == true or nil
+    end
+    BarHighlight.Redraw()
 end
 
 local function Refresh(resync)
@@ -251,6 +378,7 @@ local function Refresh(resync)
         and Plain(UnitIsDeadOrGhost, "target") == false
     local native = Game.InCombat() or nativeRequired
     local nextPlace = target and not native and NextPlace() or nil
+    local hold = (channelling and HelperOn()) or BoltFirst()
     for _, glow in ipairs(shown) do
         if not target then
             Stop(glow)
@@ -258,24 +386,59 @@ local function Refresh(resync)
             Place(glow, true)
             if not glow.watching or resync then Watch(glow, true) end
             glow.alert:Show()
-            glow.clip:Show()
-            Play(glow)
+            glow.clip:SetShown(not hold)
+            if not hold then Play(glow) end
         else
             if glow.watching then Watch(glow, false) end
             Place(glow, false)
-            local on = glow.place == nextPlace
+            local on = glow.place == nextPlace and not hold
             glow.alert:SetShown(on)
             glow.clip:SetShown(on)
             if on then Play(glow) end
         end
     end
+    if resync then
+        for _, glow in ipairs(rotShown) do
+            if glow.watching then Watch(glow, true) end
+        end
+    end
+    RefreshProcs()
+    RefreshRotation()
+    UpdateTicker()
 end
+
+function BarHighlight.Redraw() Refresh() end
 
 local function Scan()
     scanPending = false
-    local wanted, missed, procWanted = {}, false, {}
-    for _, button in ipairs(BarButtons()) do
+    local wanted, missed, procWanted, rotWanted = {}, false, {}, {}
+    local helper = HelperOn()
+    local allKeys = {}
+    for i, family in ipairs(families) do allKeys[i] = family.key end
+    allKeys = table.concat(allKeys, ",")
+    local function Helper(button, kind, place)
+        local id = (button:GetName() or tostring(button)) .. "|" .. kind .. "|" .. (place or 0) .. "|" .. allKeys
+        local glow = rotGlows[id]
+        if not glow then
+            local ok, made = pcall(NewGlow, button, place or 0, true)
+            if ok then
+                made.kind = kind
+                glow = made
+                rotGlows[id] = glow
+            else
+                missed = true
+            end
+        end
+        if glow then rotWanted[glow] = true end
+    end
+    for _, button in ipairs(ns.ActionButtons.Bar()) do
         local spell = ActionSpell(button.action)
+        if helper and spell then
+            if WRACK_IDS[spell] then Helper(button, "wrack") end
+            if procIds[spell] == "shadowTrance" then Helper(button, "bolt") end
+            local place = PlaceOfSpell(spell)
+            if place then Helper(button, "refresh", place) end
+        end
         local proc = spell and procIds[spell]
         if proc then
             local id = (button:GetName() or tostring(button)) .. "|" .. proc
@@ -317,6 +480,11 @@ local function Scan()
     end
     procShown = {}
     for glow in pairs(procWanted) do procShown[#procShown + 1] = glow end
+    for _, glow in ipairs(rotShown) do
+        if not rotWanted[glow] then Stop(glow) end
+    end
+    rotShown = {}
+    for glow in pairs(rotWanted) do rotShown[#rotShown + 1] = glow end
     RefreshProcs()
     BarHighlight.retry = missed
     Refresh(true)
@@ -328,14 +496,52 @@ local function ScanSoon()
     C_Timer.After(0, Scan)
 end
 
+local function LoadLengths()
+    for _, family in ipairs(families) do
+        for _, spell in ipairs(family.spells) do
+            local id = Core.HighestKnown(spell.ranks, Knows)
+            if id then DebuffLength(id, family) end
+        end
+    end
+end
+
 local function Rebuild()
     ReadFamilies()
+    LoadLengths()
     UpdateReadability()
     Scan()
 end
 
 function BarHighlight.Shown() return shown end
 function BarHighlight.ProcShown() return procShown end
+function BarHighlight.HelperShown() return rotShown end
+
+function BarHighlight.Report()
+    local Text = ns.Text
+    local native = Game.InCombat() or nativeRequired
+    local now, latency = Now(), Game.Latency()
+    local lit = {}
+    for _, glow in ipairs(rotShown) do
+        if glow.clip.IsShown and glow.clip:IsShown() then
+            lit[#lit + 1] = glow.kind .. ":" .. ((glow.button.GetName and glow.button:GetName()) or "?")
+        end
+    end
+    local lines = { string.format(Text.HELPER_REPORT_STATE, tostring(HelperOn()), tostring(wrackKnown),
+        tostring(TargetOk()), tostring(Game.InCombat()), tostring(nativeRequired), tostring(channelling),
+        tostring(procActive.shadowTrance == true), tostring(BarHighlight.choice), #rotShown,
+        tostring(rotationTicker ~= nil), string.format("%.2f", latency)) }
+    for _, family in ipairs(families) do
+        local left, spellKey, source = TimeLeft(family, native, now)
+        lines[#lines + 1] = string.format(Text.HELPER_REPORT_DOT, family.key,
+            left and string.format("%.2f", left) or "-", source or "-",
+            string.format("%.2f", Core.AddLatency(Core.FlashLead(family.key, spellKey), latency)))
+    end
+    lines[#lines + 1] = string.format(Text.HELPER_REPORT_LAST, tostring(lastCast), tostring(TargetGuid()),
+        table.concat(lit, " "))
+    return lines
+end
+
+function BarHighlight.HelperOn() return HelperOn() end
 
 table.insert(ns.onSphere, function()
     if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
@@ -348,11 +554,26 @@ table.insert(ns.onSphere, function()
     for _, event in ipairs({ "UNIT_AURA", "UNIT_FLAGS", "UNIT_FACTION", "UNIT_HEALTH" }) do
         events:RegisterUnitEvent(event, "target")
     end
+    for _, event in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP" }) do
+        events:RegisterUnitEvent(event, "player")
+    end
     local alive
-    events:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_ENTERING_WORLD" then
+    events:SetScript("OnEvent", function(_, event, unit, _, spellID)
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            OnCast(spellID)
+            RefreshRotation()
+        elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+            local wrack = type(spellID) == "number" and not IsSecret(spellID) and WRACK_IDS[spellID] == true
+            local now = event == "UNIT_SPELLCAST_CHANNEL_START" and wrack
+            if now ~= channelling and (wrack or not now) then
+                channelling = now
+                Refresh()
+            end
+        elseif event == "PLAYER_ENTERING_WORLD" then
             Rebuild()
         elseif event == "PLAYER_TARGET_CHANGED" then
+            local guid = TargetGuid()
+            estimates.target = guid and estimates[guid] and Core.Copy(estimates[guid]) or nil
             alive = Plain(UnitIsDeadOrGhost, "target") == false
             Refresh(true)
         elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
@@ -361,6 +582,7 @@ table.insert(ns.onSphere, function()
                 Refresh(true)
             end)
         elseif event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
+            if event == "PLAYER_REGEN_ENABLED" then PruneEstimates() end
             if event == "PLAYER_REGEN_ENABLED" and BarHighlight.retry then
                 Scan()
             else
@@ -382,6 +604,7 @@ table.insert(ns.onSphere, function()
         end
     end)
     table.insert(ns.onSpellsChanged, Rebuild)
+    ns.ActionButtons.OnChange(ScanSoon)
     ns.OnSetting(Core.BAR_HIGHLIGHT_SETTINGS, Rebuild)
     Rebuild()
 end)

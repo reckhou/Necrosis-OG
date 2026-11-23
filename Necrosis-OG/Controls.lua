@@ -155,7 +155,6 @@ end
 local function SacrificeOn() return BuffOn(Core.CONTROL_BUTTONS.sacrifice) end
 local function PactLearned() return Buttons.IsKnown(Core.SPELLS.demonicPact[1]) end
 
--- living demon is out, nil when hidden
 local function PetOut()
     local pet = Plain(UnitExists, "pet")
     if pet ~= true then return pet end
@@ -193,28 +192,15 @@ local function CheckSoulstoneAt(left)
     C_Timer.After(left + 1, function() UpdateShown() end)
 end
 
--- true when soulstone cooldown over, nil if hidden
+-- soulstone cooldown in sec, nil when hidden
 local function SoulstoneLeft()
     local start, duration, hidden = ns.Stones.Cooldown("soulstone")
     if hidden then return nil end
     return start ~= nil and Core.CooldownLeft(start, duration, GetTime()) or 0
 end
 
-local function SoulstoneReady()
-    if Plain(UnitIsDeadOrGhost, "player") == true then return false end
-    local soul = C_UnitAuras and Plain(C_UnitAuras.GetPlayerAuraBySpellID, Core.SOULSTONE_USE_SPELL)
-    if type(soul) == "table" then return false end
-    local left = SoulstoneLeft()
-    if left == nil then return nil end
-    if left > 0 then
-        CheckSoulstoneAt(left)
-        return false
-    end
-    return true
-end
-
 local SOULSTONE_SOUND = Core.MEDIA_PATH .. "Sounds\\SoulstoneEnd-En.mp3"
-local soulstoneCooling = false
+local soulstoneAnnouncementPending = false
 
 -- play sound and message when switch on
 local function SoulstoneReadySound()
@@ -225,17 +211,24 @@ end
 
 Controls.SoulstoneReadySound = SoulstoneReadySound
 
+-- ready when cooldown and soulstone buff both gone
 local function WatchSoulstone()
+    local dead = Plain(UnitIsDeadOrGhost, "player") == true
     local left = SoulstoneLeft()
-    if left == nil then return end
-    if left > 0 then
-        soulstoneCooling = true
+    if left and left > 0 then
+        soulstoneAnnouncementPending = true
         CheckSoulstoneAt(left)
-        return
+        return false
     end
-    if not soulstoneCooling then return end
-    soulstoneCooling = false
-    SoulstoneReadySound()
+    if dead then return false end
+    local buff = BuffOn(Core.CONTROL_BUTTONS.soulstone)
+    if buff then return false end
+    if left == nil or buff == nil then return nil end
+    if soulstoneAnnouncementPending then
+        soulstoneAnnouncementPending = false
+        SoulstoneReadySound()
+    end
+    return true
 end
 
 Controls.WatchSoulstone = WatchSoulstone
@@ -305,7 +298,6 @@ local function OnMirrorTimer(event, name, ...)
     UpdateBreath()
 end
 
--- check breath bar after reload
 local function CheckBreathNow()
     if type(GetMirrorTimerInfo) ~= "function" then return end
     for index = 1, Core.MIRROR_TIMER_SLOTS do
@@ -327,10 +319,10 @@ local function BreathSound()
 end
 
 -- if the thing icon warns is missing, nil when hidden
-local function Missing(key)
+local function Missing(key, soulstoneReady)
     local def = Core.CONTROL_BUTTONS[key]
     if def.missing == "soulstoneReady" then
-        return SoulstoneReady()
+        return soulstoneReady
     elseif def.missing == "stone" then
         local held = ns.Stones.State()
         return held[def.stone] == nil
@@ -393,10 +385,9 @@ local TRAVEL = {}
 local demoStep = 0
 local READY = {}
 
--- update which icons show
 function UpdateShown()
     if not bar then return end
-    WatchSoulstone()
+    local soulstoneReady = WatchSoulstone()
     local combat = inCombat or InCombat()
     petWasOut = PetOut()
     local hidden = false
@@ -436,7 +427,7 @@ function UpdateShown()
             want = false
             button.why = "safe area"
         else
-            local missing = Missing(key)
+            local missing = Missing(key, soulstoneReady)
             button.why = missing == nil and "hidden by the game" or (missing and "missing" or "not missing")
             if combat and SHOWN_IN_COMBAT[key] then
                 want = missing ~= false
@@ -527,7 +518,6 @@ local function ActionsFor(button, def, id, spell, kind)
     return actions
 end
 
--- right click same as left click
 local function MirrorRight(actions)
     for _, name in ipairs({ "type", "spell", "macrotext", "unit" }) do
         local left = actions[name .. "1"]
@@ -586,7 +576,7 @@ local function LearnSacrifice()
         for _, id in ipairs(ids) do known[id] = true end
     end
     for _, id in ipairs(Core.SOULLINK_AURAS) do known[id] = true end
-    known[Core.SOULSTONE_USE_SPELL] = true
+    for _, id in ipairs(Core.SOULSTONE_AURAS) do known[id] = true end
     local now = GetTime()
     pcall(function()
         for i = 1, 40 do

@@ -56,7 +56,7 @@ local function Breakpoint(rule)
     return copy
 end
 
-local RULES = { timer = Core.TIMER_TEXT_RULES, cooldown = Core.COOLDOWN_TEXT_RULES }
+local RULES = { timer = Core.TIMER_TEXT_RULES, cooldown = Core.COOLDOWN_TEXT_RULES, aura = Core.AURA_TEXT_RULES }
 local formatters = {}
 
 -- formatter for "timer" (0:07) or "cooldown" (7, 2m) text
@@ -136,6 +136,13 @@ function Durations.ColourCurve(points)
         return made
     end)
     return ok and curve or nil
+end
+
+function Durations.SetCurvePoints(curve, points)
+    return (pcall(function()
+        curve:ClearPoints()
+        for _, p in ipairs(points) do curve:AddPoint(p[1], CreateColor(p[2], p[3], p[4], p[5] or 1)) end
+    end))
 end
 
 function Durations.RemainingProperty()

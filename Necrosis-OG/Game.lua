@@ -43,7 +43,19 @@ local Plain = Game.Plain
 
 function Game.InCombat() return InCombatLockdown() == true end
 
+function Game.Latency()
+    local ok, _, _, home, world = pcall(GetNetStats)
+    if not ok then return 0 end
+    local ms = (type(world) == "number" and world > 0) and world or home
+    return ns.Core.LatencySeconds(ms)
+end
+
 function Game.SpellName(id)
     if not id then return nil end
     return Plain(C_Spell and C_Spell.GetSpellName, id)
+end
+
+if ns.Core and ns.Core.AddDurationWord then
+    ns.Core.AddDurationWord(rawget(_G, "INT_SPELL_DURATION_SEC"), 1)
+    ns.Core.AddDurationWord(rawget(_G, "INT_SPELL_DURATION_MIN"), 60)
 end

@@ -70,7 +70,6 @@ end
 -- read collection and pick next mount
 local function Choose()
     local collection = ReadCollection()
-    -- steed from spellbook, because Forever maybe not have it in collection
     local id = Core.PickSpell({ "felsteed", "dreadsteed" }, Buttons.IsKnown)
     local bookSteed = id and { spellID = id, icon = Plain(C_Spell.GetSpellTexture, id),
         usable = Plain(IsIndoors) ~= true and Plain(C_Spell.IsSpellUsable, id) ~= false }
@@ -104,6 +103,34 @@ local function Wear()
     end
     local grey = shown == nil or (not mounted and not Mount.WillSummon())
     button.icon:SetDesaturated(grey and not ns.demo)
+    ns.Rings.ShowGlow(button.lit, mounted)
+end
+
+local function GlobalCooldownLength()
+    local info = Plain(C_Spell.GetSpellCooldown, Core.GLOBAL_COOLDOWN_SPELL)
+    local length = type(info) == "table" and info.duration
+    if type(length) == "number" and not IsSecret(length) and length > 0 and length <= 2 then return length end
+    return Core.MOUNT_SWIPE
+end
+
+-- mount cast in sec, use global cooldown for instant cast
+local function CastLength(spellID)
+    local info = Plain(C_Spell.GetSpellInfo, spellID)
+    local ms = type(info) == "table" and info.castTime
+    if type(ms) == "number" and not IsSecret(ms) and ms > 0 then return ms / 1000 end
+    return GlobalCooldownLength()
+end
+
+local function ClearSwipe()
+    pcall(button.cooldown.SetCooldown, button.cooldown, 0, 0)
+end
+
+local function IsMountSpell(spellID)
+    if type(spellID) ~= "number" or IsSecret(spellID) then return false end
+    if (pick and pick.spellID == spellID) or Core.MountInPool(pool, spellID) or Core.SteedRank(spellID) then return true end
+    local journal = C_MountJournal
+    return journal ~= nil and type(journal.GetMountFromSpell) == "function"
+        and Plain(journal.GetMountFromSpell, spellID) ~= nil
 end
 
 -- can use hearthstone now, and the note for the tooltip
@@ -167,6 +194,31 @@ Buttons.OnCreate(function(sphere)
         if Mount.WillSummon() then return "mount", nil end
     end
     Buttons.AddSlot("mount", button)
+    button.lit = ns.Rings.NewGlow(button, "MountButton")
+    ns.Rings.ShowGlow(button.lit, false)
+    button.cooldown = ns.Durations.NewSwipe(button, { level = 4 })
+
+    local casts = CreateFrame("Frame")
+    casts:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+    casts:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+    casts:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
+    casts:RegisterUnitEvent("UNIT_SPELLCAST_FAILED_QUIET", "player")
+    casts:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
+    casts:SetScript("OnEvent", function(_, event, _, a, b, c)
+        if event == "UNIT_SPELLCAST_SENT" then
+            if ns.demo or not IsMountSpell(c) then return end
+            pcall(button.cooldown.SetCooldown, button.cooldown, GetTime(), CastLength(c))
+        elseif event == "UNIT_SPELLCAST_START" then
+            if ns.demo or not IsMountSpell(b) then return end
+            local ok, _, _, _, from, to = pcall(UnitCastingInfo, "player")
+            if ok and type(from) == "number" and type(to) == "number" and not IsSecret(from) and not IsSecret(to)
+                and to > from then
+                pcall(button.cooldown.SetCooldown, button.cooldown, from / 1000, (to - from) / 1000)
+            end
+        else
+            if IsMountSpell(b) then ClearSwipe() end
+        end
+    end)
 
     local events = CreateFrame("Frame")
     events:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
@@ -198,7 +250,7 @@ Buttons.OnCreate(function(sphere)
     end)
 end)
 
--- game has no event for favourite change, so hook the call
+-- watch for favourite mount changes
 local hooked
 
 local function HookFavourites()

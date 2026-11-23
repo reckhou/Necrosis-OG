@@ -25,10 +25,6 @@ local Plain, IsSecret = Game.Plain, Game.IsSecret
 local SacrificeGlow = {}
 ns.SacrificeGlow = SacrificeGlow
 
-local BUTTONS_PER_BAR = 12
-local PET_SLOTS = 10
-local FALLBACK_BARS = { "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarLeftButton",
-    "MultiBarRightButton", "MultiBar5Button", "MultiBar6Button", "MultiBar7Button" }
 local UNITS = { "player", "pet" }
 
 local glows = {}
@@ -68,21 +64,12 @@ end
 -- all button on bars that cast sacrifice
 local function SacrificeButtons()
     local found = {}
-    local names = ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames or FALLBACK_BARS
-    for _, prefix in ipairs(names) do
-        for i = 1, BUTTONS_PER_BAR do
-            local button = _G[prefix .. i]
-            if type(button) == "table" and button.GetName and SlotIsSacrifice(button.action) then
-                found[#found + 1] = button
-            end
-        end
+    for _, button in ipairs(ns.ActionButtons.Bar()) do
+        if SlotIsSacrifice(button.action) then found[#found + 1] = button end
     end
-    for i = 1, PET_SLOTS do
-        local button = _G["PetActionButton" .. i]
-        if type(button) == "table" and button.GetName then
-            local ok, spellID = pcall(function() return select(7, GetPetActionInfo(i)) end)
-            if ok and IsSacrifice(spellID) then found[#found + 1] = button end
-        end
+    for _, pet in ipairs(ns.ActionButtons.Pet()) do
+        local ok, spellID = pcall(function() return select(7, GetPetActionInfo(pet.index)) end)
+        if ok and IsSacrifice(spellID) then found[#found + 1] = pet.button end
     end
     return found
 end
@@ -253,6 +240,7 @@ table.insert(ns.onSphere, function()
         ScanSoon()
     end)
     table.insert(ns.onDemoData, OnDemoData)
+    ns.ActionButtons.OnChange(ScanSoon)
     ns.OnSetting(Core.SACRIFICE_SETTINGS, Refresh)
     Scan()
 end)
