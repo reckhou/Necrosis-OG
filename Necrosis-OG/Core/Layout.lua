@@ -249,19 +249,23 @@ function Core.EnchantSpan(left, now)
     return now - (length - left), length, now + left
 end
 
--- show "1h", "29m" or "45"
+Core.TIME_UNITS = { min = "m", hour = "h", day = "d" }
+
+-- show time with letters from addon language
 function Core.CooldownText(remaining)
     if not isNumber(remaining) or remaining <= 0 then return "" end
-    if remaining >= 3600 then return math.floor(remaining / 3600) .. "h" end
-    if remaining >= 60 then return math.floor(remaining / 60) .. "m" end
+    local units = Core.TIME_UNITS
+    if remaining >= 3600 then return math.floor(remaining / 3600) .. units.hour end
+    if remaining >= 60 then return math.floor(remaining / 60) .. units.min end
     return tostring(math.ceil(remaining))
 end
 
 function Core.AuraText(remaining)
     if not isNumber(remaining) or remaining <= 0 then return "" end
-    if remaining >= 86400 * 1.5 then return math.ceil(remaining / 86400) .. "d" end
-    if remaining >= 3600 * 1.5 then return math.ceil(remaining / 3600) .. "h" end
-    if remaining >= 60 * 1.5 then return math.ceil(remaining / 60) .. "m" end
+    local units = Core.TIME_UNITS
+    if remaining >= 86400 * 1.5 then return math.ceil(remaining / 86400) .. units.day end
+    if remaining >= 3600 * 1.5 then return math.ceil(remaining / 3600) .. units.hour end
+    if remaining >= 60 * 1.5 then return math.ceil(remaining / 60) .. units.min end
     return tostring(math.floor(remaining))
 end
 
@@ -277,6 +281,24 @@ Core.COOLDOWN_TEXT_RULES = {
     { threshold = 60, format = "%dm", components = { { div = 60, step = 1, rounding = "Down" } } },
     { threshold = 3600, format = "%dh", components = { { div = 3600, step = 1, rounding = "Down" } } },
 }
+
+local UNIT_RULES = {
+    { Core.AURA_TEXT_RULES[2], "min" }, { Core.AURA_TEXT_RULES[3], "hour" }, { Core.AURA_TEXT_RULES[4], "day" },
+    { Core.COOLDOWN_TEXT_RULES[2], "min" }, { Core.COOLDOWN_TEXT_RULES[3], "hour" },
+}
+local ENGLISH_UNITS = { min = "m", hour = "h", day = "d" }
+
+function Core.SetTimeUnits(min, hour, day)
+    local function Unit(key, value)
+        Core.TIME_UNITS[key] = type(value) == "string" and value ~= "" and value or ENGLISH_UNITS[key]
+    end
+    Unit("min", min)
+    Unit("hour", hour)
+    Unit("day", day)
+    for _, entry in ipairs(UNIT_RULES) do
+        entry[1].format = "%d" .. Core.TIME_UNITS[entry[2]]:gsub("%%", "%%%%")
+    end
+end
 
 Core.COOLDOWN_RED_WINDOW = 120
 Core.COOLDOWN_FLASH_LEAD = 30

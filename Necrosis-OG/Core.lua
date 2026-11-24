@@ -29,6 +29,7 @@ Core.DEFAULTS = {
     skin = "Rose",
     font = "friz",
     textSize = 100,
+    language = "auto",
     windowScale = 100,
     barTexture = "blizzard",
     sphere = {
@@ -313,6 +314,82 @@ function Core.WindowScaleOrDefault(value)
         if size == value then return value end
     end
     return Core.DEFAULTS.windowScale
+end
+
+Core.LANGUAGES = {
+    { "enUS", "English" }, { "deDE", "Deutsch" }, { "frFR", "Français" }, { "esES", "Español (EU)" },
+    { "esMX", "Español (AL)" }, { "ptBR", "Português" }, { "ruRU", "Русский" }, { "koKR", "한국어" },
+    { "zhCN", "简体中文" }, { "zhTW", "繁體中文" },
+}
+Core.LANGUAGE_AUTO = "auto"
+
+Core.LANGUAGE_FALLBACK = { esES = "esMX", esMX = "esES" }
+
+function Core.LanguageName(code)
+    for _, entry in ipairs(Core.LANGUAGES) do
+        if entry[1] == code then return entry[2] end
+    end
+    return nil
+end
+
+local function LanguageAvailable(code, locales)
+    return code == "enUS" or (type(locales) == "table" and type(locales[code]) == "table")
+end
+
+local function LanguageFile(code, locales)
+    if not Core.LanguageName(code) then return nil end
+    if LanguageAvailable(code, locales) then return code end
+    local twin = Core.LANGUAGE_FALLBACK[code]
+    if twin and LanguageAvailable(twin, locales) then return twin end
+    return nil
+end
+
+-- pick saved language or language of game
+function Core.ResolveLanguage(setting, client, locales)
+    if setting ~= Core.LANGUAGE_AUTO then
+        local code = LanguageFile(setting, locales)
+        if code then return code end
+    end
+    return LanguageFile(client, locales) or "enUS"
+end
+
+function Core.LanguageOrDefault(value, locales)
+    if value ~= Core.LANGUAGE_AUTO and LanguageAvailable(value, locales) and Core.LanguageName(value) then return value end
+    return Core.LANGUAGE_AUTO
+end
+
+function Core.LanguageChoices(locales, autoText)
+    local choices = { { Core.LANGUAGE_AUTO, autoText } }
+    for _, entry in ipairs(Core.LANGUAGES) do
+        if LanguageAvailable(entry[1], locales) then choices[#choices + 1] = { entry[1], entry[2] } end
+    end
+    return choices
+end
+
+function Core.MergeText(into, english, strings)
+    for key in pairs(into) do into[key] = nil end
+    for key, value in pairs(english) do into[key] = value end
+    if type(strings) == "table" then
+        for key, value in pairs(strings) do
+            if english[key] ~= nil and type(value) == "string" and value ~= "" then into[key] = value end
+        end
+    end
+    return into
+end
+
+Core.SOUND_DEFAULT = "En"
+Core.soundSuffix = Core.SOUND_DEFAULT
+
+function Core.SetSoundSuffix(suffix)
+    Core.soundSuffix = type(suffix) == "string" and suffix ~= "" and suffix or Core.SOUND_DEFAULT
+end
+
+function Core.SoundFile(name)
+    return name .. "-" .. Core.soundSuffix .. ".mp3"
+end
+
+function Core.SoundPath(name)
+    return Core.MEDIA_PATH .. "Sounds\\" .. Core.SoundFile(name)
 end
 
 function Core.ScaledFontSize(size, percent)

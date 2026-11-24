@@ -25,17 +25,16 @@ local Bars = ns.Bars
 local ProcAlerts = {}
 ns.ProcAlerts = ProcAlerts
 
-local SOUND_PATH = Core.MEDIA_PATH .. "Sounds\\"
 local WARNING_SOUND = 8959
 local CHECK_EVERY = 0.2
 
 local PROCS = {
     { key = "shadowTrance", spells = "shadowBolt", icons = { Core.SHADOW_TRANCE_ID, Core.SPELLS.shadowBolt[1] },
-        sound = "ShadowTrance-En.mp3", glows = true, buff = Core.PROC_BUFFS.shadowTrance },
+        sound = "ShadowTrance", glows = true, buff = Core.PROC_BUFFS.shadowTrance },
     { key = "decimation", spells = "soulFire", icons = { Core.SPELLS.soulFire[1] }, glows = true,
         buff = Core.PROC_BUFFS.decimation },
     { key = "amplifyCurse", spells = "amplifyCurse", icons = { Core.SPELLS.amplifyCurse[1] } },
-    { key = "antiFear", picture = "AntiFearImmune-01", ring = "AntiFearImmune", sound = "Fear-En.mp3" },
+    { key = "antiFear", picture = "AntiFearImmune-01", ring = "AntiFearImmune", sound = "Fear" },
 }
 ProcAlerts.PROCS = PROCS
 local BY_KEY = {}
@@ -80,7 +79,7 @@ end
 local function PlayAlertSound(proc)
     if ns.db.alerts.sounds[proc.key] == false then return end
     if proc.sound then
-        if type(PlaySoundFile) == "function" then pcall(PlaySoundFile, SOUND_PATH .. proc.sound, "Master") end
+        if type(PlaySoundFile) == "function" then pcall(PlaySoundFile, Core.SoundPath(proc.sound), "Master") end
     elseif type(PlaySound) == "function" then
         pcall(PlaySound, type(SOUNDKIT) == "table" and SOUNDKIT.RAID_WARNING or WARNING_SOUND)
     end

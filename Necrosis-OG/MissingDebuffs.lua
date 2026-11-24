@@ -19,9 +19,13 @@
 
 local _, ns = ...
 local Core, Game = ns.Core, ns.Game
+local MissingDebuffs = {}
+ns.MissingDebuffs = MissingDebuffs
 local known, byUnit, byBase = {}, {}, {}
 local filter = "HARMFUL|PLAYER"
 local nativeRequired = false
+local wrackChannel = false
+local targetSiphonImmune = false
 local demoSet
 local TARGET_SIZE, PLATE_SIZE = 18, 14
 
@@ -214,15 +218,24 @@ local function Refresh(unit, resync)
         and Game.Plain(UnitAffectingCombat, unit) == true
     local combat = Game.InCombat()
     local native = enemy and (combat or nativeRequired)
+    if not strip.creatureType then
+        local ok, _, creatureType = pcall(UnitCreatureType, unit)
+        if ok and not Game.IsSecret(creatureType) and type(creatureType) == "number" then
+            strip.creatureType = creatureType
+        end
+    end
+    local skipSiphon = wrackChannel or Core.SIPHON_IMMUNE_TYPES[strip.creatureType] == true
+        or (targetSiphonImmune and (unit == "target" or Game.Plain(UnitIsUnit, unit, "target") == true))
     local chain, textures, keys = {}, {}, {}
     for _, family in ipairs(known) do
         local cell = strip.cells[family.key]
+        local show = enemy and (family.key ~= "siphonLife" or not skipSiphon)
         if cell == nil and (enemy or not combat) then
             local ok, frame = pcall(CreateNativeCell, strip, family)
             cell = ok and frame or false
             strip.cells[family.key] = cell
         end
-        if native and cell then
+        if show and native and cell then
             local texture = family[1].texture
             for _, spell in ipairs(family) do
                 if spell.key == ns.db.timers.lastInSlot[family.key] then texture = spell.texture end
@@ -240,7 +253,7 @@ local function Refresh(unit, resync)
             end
             cell.wanted = true
             chain[#chain + 1] = cell
-        elseif enemy and not native then
+        elseif show and not native then
             textures[#textures + 1] = MissingTexture(unit, family)
             keys[#textures] = family.key
         end
@@ -257,6 +270,19 @@ local function Refresh(unit, resync)
         end
     end
     strip:SetShown(shown or (strip.enabled and strip.placing == true))
+end
+
+function MissingDebuffs.SetWrackChannel(active)
+    if active == wrackChannel then return end
+    wrackChannel = active
+    for unit in pairs(byUnit) do Refresh(unit) end
+end
+
+function MissingDebuffs.SetTargetSiphonImmune(immune)
+    immune = immune == true
+    if immune == targetSiphonImmune then return end
+    targetSiphonImmune = immune
+    for unit in pairs(byUnit) do Refresh(unit) end
 end
 
 local function NewStrip(parent, size)
@@ -397,6 +423,7 @@ end
 
 local function Recall(unit, strip)
     strip.flashing = {}
+    strip.creatureType = nil
     local guid = Game.Plain(UnitGUID, unit)
     for key in pairs(guid and casts[guid] or {}) do strip.flashing[key] = true end
 end

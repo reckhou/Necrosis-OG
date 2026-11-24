@@ -1,9 +1,18 @@
 ## Interface: 16001
 ## Title: |cffff00ffN|cffff28ffe|cffff50ffc|cffff75ffr|cffff99ffo|cffffafffs|cffffc4ffi|cffffe2ffs |cffffffffO|cffffe2ffG|r
 ## Notes: One classic sphere. The essential Warlock tool.
+## Notes-deDE: Eine klassische Kugel. Das unverzichtbare Hexenmeister-Werkzeug.
+## Notes-esES: Una esfera clásica. La herramienta esencial del brujo.
+## Notes-esMX: Una esfera clásica. La herramienta esencial del brujo.
+## Notes-ptBR: Uma esfera clássica. A ferramenta essencial do bruxo.
+## Notes-ruRU: Одна классическая сфера. Незаменимый инструмент чернокнижника.
+## Notes-koKR: 하나의 클래식 구. 흑마법사의 필수 도구.
+## Notes-frFR: Une sphère classique. L'outil essentiel du démoniste.
+## Notes-zhTW: 一個經典球體。術士的必備工具。
+## Notes-zhCN: 一个经典球体。术士的必备工具。
 ## Category: Class
 ## IconTexture: Interface\AddOns\Necrosis-OG\Media\UI\AddonIcon
-## Version: 1.4.0
+## Version: 1.5.0
 ## X-License: GPL-2.0-or-later
 ## X-Website: https://github.com/reckhou/Necrosis-OG
 ## SavedVariablesPerCharacter: NecrosisOGDB
@@ -32,6 +41,15 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 Text.lua
+Locales\deDE.lua
+Locales\frFR.lua
+Locales\esES.lua
+Locales\esMX.lua
+Locales\ptBR.lua
+Locales\ruRU.lua
+Locales\koKR.lua
+Locales\zhCN.lua
+Locales\zhTW.lua
 Core.lua
 Core\Shards.lua
 Core\Threat.lua

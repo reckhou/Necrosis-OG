@@ -177,6 +177,8 @@ function Core.TimeFlashPoints(lead)
     return points
 end
 
+Core.MULTI_SKIP_TYPES = { [11] = true }
+
 -- target go first, then sort by nameplate index, max to MULTI_LINES
 function Core.OrderNameplates(candidates)
     local ordered = {}
@@ -332,6 +334,10 @@ Core.RESIST_TEXTS = { MISS = true, RESIST = true, IMMUNE = true, EVADE = true }
 
 function Core.IsResist(action, school)
     return Core.RESIST_TEXTS[action] == true and school ~= 1
+end
+
+function Core.IsImmuneText(action, school)
+    return action == "IMMUNE" and school ~= 1
 end
 
 function Core.SortTimers(timers)

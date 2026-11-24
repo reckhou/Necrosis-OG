@@ -47,12 +47,17 @@ local function Name(key) return "NecrosisOGBinding_" .. key end
 
 function Bindings.Command(key) return "CLICK " .. Name(key) .. ":LeftButton" end
 
-BINDING_HEADER_NECROSISOG = Text.SETTINGS_TITLE
-for _, entry in ipairs(entries) do
-    local label = entry.label and Text[entry.label]
-        or SpellName(Core.SPELLS[entry.spell][1])
-    _G["BINDING_NAME_CLICK " .. Name(entry.key) .. ":LeftButton"] = label
+local function NameBindings()
+    BINDING_HEADER_NECROSISOG = Text.SETTINGS_TITLE
+    for _, entry in ipairs(entries) do
+        local label = entry.label and Text[entry.label]
+            or SpellName(Core.SPELLS[entry.spell][1])
+        _G["BINDING_NAME_CLICK " .. Name(entry.key) .. ":LeftButton"] = label
+    end
 end
+
+NameBindings()
+table.insert(ns.onLoad, NameBindings)
 
 -- macro for use the stone, limit is max chars
 local function StoneMacro(kind, limit)

@@ -432,12 +432,16 @@ local function FocusItem(key)
     return nil
 end
 
+local function TypeID(unit)
+    local ok, _, typeID = pcall(UnitCreatureType, unit)
+    if not ok or IsSecret(typeID) or type(typeID) ~= "number" then return nil end
+    return typeID
+end
+
 -- creature type of focus, nil if none or hidden
 local function FocusTypeID()
     if Plain(UnitExists, "focus") ~= true then return nil end
-    local ok, _, typeID = pcall(UnitCreatureType, "focus")
-    if not ok or IsSecret(typeID) or type(typeID) ~= "number" then return nil end
-    return typeID
+    return TypeID("focus")
 end
 
 -- layout focus icons of known spells
@@ -878,7 +882,8 @@ local function Candidates()
         local dead = Plain(UnitIsDead, unit)
         local okThreat, threat = pcall(UnitThreatSituation, "player", unit)
         local fighting = not okThreat or IsSecret(threat) or threat ~= nil
-        if index and attack ~= false and dead ~= true and fighting then
+        local skipped = Core.MULTI_SKIP_TYPES[TypeID(unit)] == true
+        if index and attack ~= false and dead ~= true and fighting and not skipped then
             candidates[#candidates + 1] = { unit = unit, index = index,
                 target = Plain(UnitIsUnit, unit, "target") == true }
         end

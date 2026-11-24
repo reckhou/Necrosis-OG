@@ -20,7 +20,7 @@
 -- all the text show to player is here
 local _, ns = ...
 
-local Text = {
+local English = {
     CHAT_PREFIX = "Necrosis OG:",
 
     BIND_HEALTHSTONE = "Use / Trade / Create Healthstone",
@@ -128,7 +128,10 @@ local Text = {
     SET_DEMO_START = "Start Demo",
     SET_DEMO_STOP = "Stop Demo",
     DEMO_ENEMY = "Demo enemy %d",
-    SET_HEAD_TOOLS = "Demo and Reset",
+    SET_HEAD_TOOLS = "Language, Demo and Reset",
+    SET_LANGUAGE_AUTO = "Auto (%s)",
+    SET_LANGUAGE_RELOAD_CONFIRM = "Reload the interface to change the language of Necrosis OG?",
+    SET_LANGUAGE_RELOAD_YES = "Reload",
     SET_HEAD_FOCUS = "Focus and Macros",
     SET_HEAD_DISPLAY = "Display",
     SET_ANIMATE = "Animations",
@@ -671,6 +674,9 @@ local Text = {
     MULTI_TARGET_MARK = ">",
     MULTI_WARN_ENEMY_PLATES = "Enemy nameplates are off: other enemies may not show.",
     MULTI_WARN_OFFSCREEN_PLATES = "Off-screen nameplates are off: enemies off screen may not show.",
+    TIME_MIN = "m",
+    TIME_HOUR = "h",
+    TIME_DAY = "d",
     TIMER_ENDING = "%s ends in %ds.",
     SOULSTONE_READY = "Your Soulstone can be used again.",
     CUSTOM_TIMER_USAGE = "Usage: /nog timer <seconds> [name], from 1 to 3600 seconds, on a Warlock.",
@@ -682,8 +688,13 @@ local Text = {
     TIMER_ENDING_ON = "%s on %s: %ds.",
 }
 
+local Text = {}
+for key, value in pairs(English) do Text[key] = value end
+
 setmetatable(Text, {
     __index = function(_, key) return "[" .. tostring(key) .. "]" end,
 })
 
+ns.TextEnglish = English
 ns.Text = Text
+ns.Locales = ns.Locales or {}

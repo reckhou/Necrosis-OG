@@ -25,8 +25,7 @@ local Durations = ns.Durations
 local Timers = {}
 ns.Timers = Timers
 
-local SOUND_PATH = Core.MEDIA_PATH .. "Sounds\\"
-local END_SOUNDS = { enslaveDemon = "EnslaveDemonEnd-En.mp3" }
+local END_SOUNDS = { enslaveDemon = "EnslaveDemonEnd" }
 local WARNING_SOUND = 8959
 local COLOURS = { control = { 0.9, 0.5, 0.1 } }
 
@@ -60,7 +59,7 @@ end
 local function PlayEndSound(key)
     local file = END_SOUNDS[key]
     if not file or ns.db.timers.sounds[key] == false or ns.db.procBar.on == false or ns.Silent() or type(PlaySoundFile) ~= "function" then return end
-    pcall(PlaySoundFile, SOUND_PATH .. file, "Master")
+    pcall(PlaySoundFile, Core.SoundPath(file), "Master")
 end
 
 local function Scale(key) return Core.TimerScale(ns.db.timers, key) / 100 end

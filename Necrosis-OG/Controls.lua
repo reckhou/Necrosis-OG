@@ -199,13 +199,13 @@ local function SoulstoneLeft()
     return start ~= nil and Core.CooldownLeft(start, duration, GetTime()) or 0
 end
 
-local SOULSTONE_SOUND = Core.MEDIA_PATH .. "Sounds\\SoulstoneEnd-En.mp3"
+local SOULSTONE_SOUND = "SoulstoneEnd"
 local soulstoneAnnouncementPending = false
 
 -- play sound and message when switch on
 local function SoulstoneReadySound()
     if ns.db.alerts.sounds.soulstone == false or ns.db.reminderBar.on == false then return end
-    if type(PlaySoundFile) == "function" then pcall(PlaySoundFile, SOULSTONE_SOUND, "Master") end
+    if type(PlaySoundFile) == "function" then pcall(PlaySoundFile, Core.SoundPath(SOULSTONE_SOUND), "Master") end
     ns.Banner(Text.SOULSTONE_READY, 1.0, 0.82, 0.0)
 end
 

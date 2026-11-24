@@ -54,6 +54,13 @@ local estimates = {}
 local lengths = {}
 local rotationTicker
 
+local siphonPlace
+local typeImmune = false
+local textImmune = false
+local immuneGuids = {}
+local siphonCastAt = -100
+local siphonSkipped = false
+
 local function Knows(id) return Plain(C_SpellBook.IsSpellKnown, id) == true end
 
 local function KnowsFamily(id) return Knows(id) or Plain(IsPlayerSpell, id) == true end
@@ -76,6 +83,10 @@ local function ReadFamilies()
             end
         end
         families[#families + 1] = family
+    end
+    siphonPlace = nil
+    for place, family in ipairs(families) do
+        if family.key == "siphonLife" then siphonPlace = place end
     end
     wrackKnown = false
     for id in pairs(WRACK_IDS) do wrackKnown = wrackKnown or KnowsFamily(id) end
@@ -169,7 +180,17 @@ local function NewGlow(button, place, all)
     local alert = CreateFrame("Frame", nil, clip, "ActionButtonSpellAlertTemplate")
     alert:EnableMouse(false)
     alert:SetSize(width * size, height * size)
-    return { button = button, place = place, clip = clip, chain = chain, alert = alert }
+    return { button = button, place = place, all = all, clip = clip, chain = chain, alert = alert }
+end
+
+local function Skipped(place)
+    return siphonSkipped and place ~= nil and place == siphonPlace
+end
+
+local function ShiftOf(glow)
+    if not siphonSkipped or not siphonPlace then return 0 end
+    if glow.all or siphonPlace < glow.place then return Core.BAR_GLOW_STEP end
+    return 0
 end
 
 local function Play(glow)
@@ -178,14 +199,15 @@ local function Play(glow)
 end
 
 local function Place(glow, native)
-    if glow.native == native then return end
+    local shift = native and ShiftOf(glow) or 0
+    if glow.native == native and glow.shift == shift then return end
     glow.alert:ClearAllPoints()
     if native and #glow.chain > 0 then
-        glow.alert:SetPoint("CENTER", glow.chain[#glow.chain], "TOPRIGHT", 0, 0)
+        glow.alert:SetPoint("CENTER", glow.chain[#glow.chain], "TOPRIGHT", shift, 0)
     else
         glow.alert:SetPoint("CENTER", glow.clip, "CENTER", 0, 0)
     end
-    glow.native = native
+    glow.native, glow.shift = native, shift
 end
 
 local function Watch(glow, on)
@@ -218,9 +240,11 @@ end
 
 local function NextPlace()
     for place, family in ipairs(families) do
-        local on = IsOn(family)
-        if on == nil then return nil end
-        if not on then return place end
+        if not Skipped(place) then
+            local on = IsOn(family)
+            if on == nil then return nil end
+            if not on then return place end
+        end
     end
     return nil
 end
@@ -249,7 +273,8 @@ end
 local function SoonPlace(native, now)
     local latency = Game.Latency()
     for place, family in ipairs(families) do
-        local left, spellKey = TimeLeft(family, native, now)
+        local left, spellKey
+        if not Skipped(place) then left, spellKey = TimeLeft(family, native, now) end
         if left and left > 0 then
             local lead = Core.FlashLead(family.key, spellKey)
             if lead > 0 and left <= Core.AddLatency(lead, latency) then return place end
@@ -276,6 +301,7 @@ local function OnCast(spellID)
     local place = PlaceOfSpell(spellID)
     lastCast = tostring(spellID)
     if not place then return end
+    if place == siphonPlace then siphonCastAt = Now() end
     local family = families[place]
     local length = DebuffLength(spellID, family)
     lastCast = lastCast .. " " .. family.key .. " " .. tostring(length)
@@ -286,6 +312,37 @@ local function OnCast(spellID)
         estimates[key] = estimates[key] or {}
         estimates[key][family.key] = cast
     end
+end
+
+local function SetSiphonSkipped()
+    local skipped = typeImmune or textImmune
+    if skipped == siphonSkipped then return false end
+    siphonSkipped = skipped
+    if ns.MissingDebuffs and ns.MissingDebuffs.SetTargetSiphonImmune then
+        ns.MissingDebuffs.SetTargetSiphonImmune(skipped)
+    end
+    return true
+end
+
+-- get siphon immunity for current target
+local function ReadTargetImmunity()
+    local guid = TargetGuid()
+    textImmune = guid ~= nil and immuneGuids[guid] == true
+    typeImmune = false
+    local ok, _, typeID = pcall(UnitCreatureType, "target")
+    if ok and not IsSecret(typeID) and type(typeID) == "number" then
+        typeImmune = Core.SIPHON_IMMUNE_TYPES[typeID] == true
+    end
+    return SetSiphonSkipped()
+end
+
+local function OnTargetCombat(action, school)
+    if IsSecret(action) or IsSecret(school) or not Core.IsImmuneText(action, school) then return false end
+    if siphonPlace == nil or Now() - siphonCastAt > Core.TIMER_RESIST_WINDOW then return false end
+    textImmune = true
+    local guid = TargetGuid()
+    if guid then immuneGuids[guid] = true end
+    return SetSiphonSkipped()
 end
 
 local function PruneEstimates()
@@ -378,16 +435,19 @@ local function Refresh(resync)
         and Plain(UnitIsDeadOrGhost, "target") == false
     local native = Game.InCombat() or nativeRequired
     local nextPlace = target and not native and NextPlace() or nil
-    local hold = (channelling and HelperOn()) or BoltFirst()
+    local wrackChannel = channelling and HelperOn()
+    if ns.MissingDebuffs then ns.MissingDebuffs.SetWrackChannel(wrackChannel) end
+    local hold = wrackChannel or BoltFirst()
     for _, glow in ipairs(shown) do
         if not target then
             Stop(glow)
         elseif native then
             Place(glow, true)
             if not glow.watching or resync then Watch(glow, true) end
+            local blocked = hold or Skipped(glow.place)
             glow.alert:Show()
-            glow.clip:SetShown(not hold)
-            if not hold then Play(glow) end
+            glow.clip:SetShown(not blocked)
+            if not blocked then Play(glow) end
         else
             if glow.watching then Watch(glow, false) end
             Place(glow, false)
@@ -551,15 +611,17 @@ table.insert(ns.onSphere, function()
         "UPDATE_BONUS_ACTIONBAR" }) do
         events:RegisterEvent(event)
     end
-    for _, event in ipairs({ "UNIT_AURA", "UNIT_FLAGS", "UNIT_FACTION", "UNIT_HEALTH" }) do
+    for _, event in ipairs({ "UNIT_AURA", "UNIT_FLAGS", "UNIT_FACTION", "UNIT_HEALTH", "UNIT_COMBAT" }) do
         events:RegisterUnitEvent(event, "target")
     end
     for _, event in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP" }) do
         events:RegisterUnitEvent(event, "player")
     end
     local alive
-    events:SetScript("OnEvent", function(_, event, unit, _, spellID)
-        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+    events:SetScript("OnEvent", function(_, event, unit, second, spellID, _, school)
+        if event == "UNIT_COMBAT" then
+            if OnTargetCombat(second, school) then Refresh() end
+        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             OnCast(spellID)
             RefreshRotation()
         elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
@@ -570,11 +632,14 @@ table.insert(ns.onSphere, function()
                 Refresh()
             end
         elseif event == "PLAYER_ENTERING_WORLD" then
+            immuneGuids = {}
+            ReadTargetImmunity()
             Rebuild()
         elseif event == "PLAYER_TARGET_CHANGED" then
             local guid = TargetGuid()
             estimates.target = guid and estimates[guid] and Core.Copy(estimates[guid]) or nil
             alive = Plain(UnitIsDeadOrGhost, "target") == false
+            ReadTargetImmunity()
             Refresh(true)
         elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
             C_Timer.After(0, function()

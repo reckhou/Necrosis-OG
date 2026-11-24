@@ -191,6 +191,8 @@ Core.ENEMY_SLOTS = {
     { key = "demonicBrand", keys = { "demonicBrand" }, talent = Core.DEMONIC_BRAND_TALENT },
 }
 
+Core.SIPHON_IMMUNE_TYPES = { [9] = true }
+
 function Core.OrderEnemySlots(saved)
     local entries, byKey = {}, {}
     for i, slot in ipairs(Core.ENEMY_SLOTS) do

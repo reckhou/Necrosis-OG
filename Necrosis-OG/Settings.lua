@@ -68,11 +68,57 @@ local function Changed(apply)
     end
 end
 
-local function Label(parent, text, x, y, font)
+local FIT_FLOOR = 0.75
+
+-- fit one line inside given width
+local function Fit(fontString, width)
+    if type(fontString) ~= "table" or type(fontString.GetFont) ~= "function"
+        or type(fontString.GetStringWidth) ~= "function" or type(fontString.SetFont) ~= "function" then
+        return
+    end
+    local file, size, flags = fontString:GetFont()
+    if type(size) ~= "number" then return end
+    fontString.fitSize = fontString.fitSize or size
+    if size ~= fontString.fitSize then
+        fontString:SetFont(file, fontString.fitSize, flags)
+    end
+    local needed = fontString:GetStringWidth()
+    if type(needed) == "number" and needed > width and width > 0 then
+        local scaled = math.floor(fontString.fitSize * math.max(FIT_FLOOR, width / needed))
+        fontString:SetFont(file, scaled, flags)
+    end
+end
+
+Window.FitText = Fit
+
+local function FitButton(button, growTo)
+    local text = type(button.GetFontString) == "function" and button:GetFontString()
+    if not text then return end
+    local base = button:GetWidth()
+    local setText = button.SetText
+    local function Refit()
+        if growTo and type(text.GetStringWidth) == "function" then
+            Fit(text, 10000)
+            local natural = text:GetStringWidth()
+            if type(natural) == "number" then button:SetWidth(math.max(base, math.min(growTo, natural + 16))) end
+        end
+        Fit(text, button:GetWidth() - 16)
+    end
+    button.SetText = function(self, value)
+        setText(self, value)
+        Refit()
+    end
+    Refit()
+end
+
+Window.FitButton = FitButton
+
+local function Label(parent, text, x, y, font, maxWidth)
     local label = parent:CreateFontString(nil, "ARTWORK", font or "GameFontNormalSmall")
     label:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     label:SetJustifyH("LEFT")
     label:SetText(text)
+    if maxWidth ~= false then Fit(label, maxWidth or (PAGE_WIDTH - x)) end
     return label
 end
 
@@ -108,7 +154,10 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     end
     slider.Low:SetText(Show(low))
     slider.High:SetText(Show(high))
-    local function Title(value) slider.Text:SetText(string.format(Text.SETTINGS_VALUE, text, Show(value))) end
+    local function Title(value)
+        slider.Text:SetText(string.format(Text.SETTINGS_VALUE, text, Show(value)))
+        Fit(slider.Text, SLIDER_WIDTH + 30)
+    end
     slider:SetScript("OnValueChanged", function(self, value)
         if self.refreshing then return end
         value = Core.RoundToStep(value, step)
@@ -153,7 +202,7 @@ local function GreyedBy(widget, on)
 end
 
 local function Dropdown(page, x, y, text, options, get, set, width, maxRows)
-    local label = text and Label(page, text, x, y)
+    local label = text and Label(page, text, x, y, nil, width or 150)
     local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
     dropdown:SetWidth(width or 150)
     dropdown.pageLabel = label
@@ -178,6 +227,7 @@ local function PushButton(page, x, y, text, onClick, width, enabled)
     button:SetSize(width or 170, 22)
     button:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
     button:SetText(text)
+    FitButton(button)
     button:SetScript("OnClick", function() Changed(onClick)() end)
     if enabled then
         function button:Refresh() self:SetEnabled(enabled() == true) end
@@ -187,9 +237,9 @@ local function PushButton(page, x, y, text, onClick, width, enabled)
 end
 
 local MENUS = {
-    { key = "utility", title = Text.SET_BUTTON_UTILITY, list = Core.UTILITY_MENU },
-    { key = "curses", title = Text.SET_BUTTON_CURSES, list = Core.CURSE_MENU },
-    { key = "demons", title = Text.SET_BUTTON_DEMONS, list = Core.DEMON_MENU },
+    { key = "utility", titleKey = "SET_BUTTON_UTILITY", list = Core.UTILITY_MENU },
+    { key = "curses", titleKey = "SET_BUTTON_CURSES", list = Core.CURSE_MENU },
+    { key = "demons", titleKey = "SET_BUTTON_DEMONS", list = Core.DEMON_MENU },
 }
 local MENU_LISTS = {}
 for _, menu in ipairs(MENUS) do MENU_LISTS[menu.key] = menu.list end
@@ -373,15 +423,15 @@ local function MenuSource()
 end
 
 local SLOTS = {
-    firestone = { Text.SET_BUTTON_FIRESTONE, "FirestoneButton-01", "FirestoneButton-02" },
-    spellstone = { Text.SET_BUTTON_SPELLSTONE, "SpellstoneButton-01", "SpellstoneButton-02" },
-    healthstone = { Text.SET_BUTTON_HEALTHSTONE, "HealthstoneButton-01", "HealthstoneButton-02" },
-    soulstone = { Text.SET_BUTTON_SOULSTONE, "SoulstoneButton-01", "SoulstoneButton-02" },
-    utility = { Text.SET_BUTTON_UTILITY, "BuffMenuButton-01" },
-    mount = { Text.SET_BUTTON_MOUNT, "MountButton-01" },
-    demons = { Text.SET_BUTTON_DEMONS, "PetMenuButton-01" },
-    curses = { Text.SET_BUTTON_CURSES, "CurseMenuButton-01" },
-    shards = { Text.SET_BUTTON_SHARDS, "ShardDestroy-01" },
+    firestone = { "SET_BUTTON_FIRESTONE", "FirestoneButton-01", "FirestoneButton-02" },
+    spellstone = { "SET_BUTTON_SPELLSTONE", "SpellstoneButton-01", "SpellstoneButton-02" },
+    healthstone = { "SET_BUTTON_HEALTHSTONE", "HealthstoneButton-01", "HealthstoneButton-02" },
+    soulstone = { "SET_BUTTON_SOULSTONE", "SoulstoneButton-01", "SoulstoneButton-02" },
+    utility = { "SET_BUTTON_UTILITY", "BuffMenuButton-01" },
+    mount = { "SET_BUTTON_MOUNT", "MountButton-01" },
+    demons = { "SET_BUTTON_DEMONS", "PetMenuButton-01" },
+    curses = { "SET_BUTTON_CURSES", "CurseMenuButton-01" },
+    shards = { "SET_BUTTON_SHARDS", "ShardDestroy-01" },
 }
 
 local function RingSource()
@@ -400,7 +450,7 @@ local function RingSource()
                     local kind, value = ns.Buttons.SlotIcon(slot)
                     if kind == "atlas" then atlas = value elseif kind == "texture" then icon = value end
                 end
-                entries[i] = { name = SLOTS[slot][1], icon = icon, atlas = atlas,
+                entries[i] = { name = Text[SLOTS[slot][1]], icon = icon, atlas = atlas,
                     known = on, tag = off and Text.SET_MENU_OFF or (not usable and Text.SET_BUTTON_UNUSABLE) or nil }
             end
             return entries
@@ -440,11 +490,12 @@ end
 
 local db = function() return ns.db end
 
-local DIRECTIONS = {
-    { "up", Text.SET_DIRECTION_UP }, { "down", Text.SET_DIRECTION_DOWN },
-    { "left", Text.SET_DIRECTION_LEFT }, { "right", Text.SET_DIRECTION_RIGHT },
-}
-local GROWTH = { { "up", Text.SET_DIRECTION_UP }, { "down", Text.SET_DIRECTION_DOWN } }
+local function DIRECTIONS()
+    return { { "up", Text.SET_DIRECTION_UP }, { "down", Text.SET_DIRECTION_DOWN },
+        { "left", Text.SET_DIRECTION_LEFT }, { "right", Text.SET_DIRECTION_RIGHT } }
+end
+
+local function GROWTH() return { { "up", Text.SET_DIRECTION_UP }, { "down", Text.SET_DIRECTION_DOWN } } end
 
 -- one lock for all movable things
 local function SetLocked(on)
@@ -503,8 +554,8 @@ local function MacroIcon(page, x, y, key)
     return icon
 end
 
-local function Heading(page, text, y)
-    return Label(page, Core.Gradient(text, Core.GRADIENT_HEADING), 0, y, "SystemFont_Shadow_Small_Outline")
+local function Heading(page, text, y, maxWidth)
+    return Label(page, Core.Gradient(text, Core.GRADIENT_HEADING), 0, y, "SystemFont_Shadow_Small_Outline", maxWidth)
 end
 
 local function GreyLabel(label, on)
@@ -513,7 +564,7 @@ local function GreyLabel(label, on)
 end
 
 local CONFIRM_DIALOGS = { positions = "NECROSIS_OG_RESET_POSITIONS", settings = "NECROSIS_OG_RESET_ALL",
-    speech = "NECROSIS_OG_RESTORE_SPEECH" }
+    speech = "NECROSIS_OG_RESTORE_SPEECH", language = "NECROSIS_OG_CHANGE_LANGUAGE" }
 
 local confirmed = {}
 
@@ -538,6 +589,13 @@ end
 -- reset all setting after yes
 function Window.ConfirmReset()
     Confirm("settings", Text.SET_RESET_CONFIRM, Text.SET_RESET_YES, function() ns.Sphere.ResetAll() end)
+end
+
+function Window.ConfirmLanguage()
+    Confirm("language", Text.SET_LANGUAGE_RELOAD_CONFIRM, Text.SET_LANGUAGE_RELOAD_YES, function()
+        local reload = (C_UI and C_UI.Reload) or ReloadUI
+        if reload then reload() end
+    end)
 end
 
 function Window.ConfirmPositions()
@@ -592,6 +650,14 @@ local function GeneralPage(page)
         138)
     function demo:Refresh() self:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.SET_DEMO_START) end
     controls[#controls + 1] = demo
+    Dropdown(page, RIGHT_COLUMN, -(PAGE_HEIGHT - 64), nil, function()
+        local auto = string.format(Text.SET_LANGUAGE_AUTO, Core.LanguageName(ns.clientLanguage) or Core.LanguageName("enUS"))
+        return Core.LanguageChoices(ns.Locales, auto)
+    end, function() return Core.LanguageOrDefault(db().language, ns.Locales) end, function(value)
+        if value == db().language then return end
+        ns.SetSetting("language", value)
+        Window.ConfirmLanguage()
+    end, 138)
     PushButton(page, 4, -(PAGE_HEIGHT - 36), Text.SET_RESET_POSITIONS, function() Window.ConfirmPositions() end,
         138)
     PushButton(page, RIGHT_COLUMN - 2, -(PAGE_HEIGHT - 36), Text.SET_RESET_ALL, function() Window.ConfirmReset() end,
@@ -661,10 +727,10 @@ local function ButtonsPage(page)
     Heading(ring, Text.SET_ORDER_HELP, -130)
 
     local free = Section(page, function() return db().buttons.free end)
-    local hint = Label(free, Text.SET_BUTTONS_FREE_HINT, 0, -36, "GameFontHighlightSmall")
+    local hint = Label(free, Text.SET_BUTTONS_FREE_HINT, 0, -36, "GameFontHighlightSmall", false)
     hint:SetWidth(PAGE_WIDTH)
     PushButton(free, 4, -85, Text.SET_BUTTONS_RESET, function() ns.Buttons.ResetPlaces() end, 138)
-    Label(free, Text.SET_BUTTONS_SWITCH, 0, -130, "GameFontHighlightSmall"):SetWidth(PAGE_WIDTH)
+    Label(free, Text.SET_BUTTONS_SWITCH, 0, -130, "GameFontHighlightSmall", false):SetWidth(PAGE_WIDTH)
 
     OrderList(page, 0, -162, PAGE_WIDTH - 10, #Core.BUTTON_SLOTS * ROW_HEIGHT, RingSource())
 end
@@ -674,7 +740,7 @@ local function MenusPage(page)
         ns.SetSetting("buttons.menuCloses", on)
     end)
     local choices = {}
-    for i, menu in ipairs(MENUS) do choices[i] = { menu.key, menu.title } end
+    for i, menu in ipairs(MENUS) do choices[i] = { menu.key, Text[menu.titleKey] } end
     Dropdown(page, 0, -28, Text.SET_MENU_CHOOSE, choices, function() return selectedMenu end,
         function(value) selectedMenu = value end, 138)
     Dropdown(page, RIGHT_COLUMN, -28, Text.SET_MENU_DIRECTION, DIRECTIONS,
@@ -782,7 +848,7 @@ end
 local function NewSection(content, title, on, path, bodyHeight)
     local section = CreateFrame("Frame", nil, content)
     section:SetWidth(PAGE_WIDTH)
-    Heading(section, title, HEAD_TOP)
+    Heading(section, title, HEAD_TOP, SHOW_X - 4)
     Check(section, SHOW_X, HEAD_TOP + 7, Text.SET_SHOW, on, function(value) ns.SetSetting(path, value) end, 60)
     local body = CreateFrame("Frame", nil, section)
     body:SetPoint("TOPLEFT", section, "TOPLEFT", 0, -HEAD_ROW)
@@ -976,7 +1042,10 @@ local function AlertsPage(tab)
         function(value) ns.SetSetting("alerts.sacrificeAt", value) end, PAGE_WIDTH - SACRIFICE_DROP_X), sacrificeOn)
 end
 
-local SAFE_CHOICES = { { "off", Text.SET_SAFE_OFF }, { "narrow", Text.SET_SAFE_NARROW }, { "wide", Text.SET_SAFE_WIDE } }
+local function SAFE_CHOICES()
+    return { { "off", Text.SET_SAFE_OFF }, { "narrow", Text.SET_SAFE_NARROW }, { "wide", Text.SET_SAFE_WIDE } }
+end
+
 local SAFE_COLUMN = 140
 local REMINDER_ROW = 27
 local REMINDER_TOP = -BAR_BLOCK
@@ -1084,7 +1153,7 @@ local function SpeechPage(page)
     end)
 
     local lines = Section(rest, subjectOn)
-    local help = Label(lines, Text.SET_SPEECH_HELP, 0, -66, "GameFontHighlightSmall")
+    local help = Label(lines, Text.SET_SPEECH_HELP, 0, -66, "GameFontHighlightSmall", false)
     help:SetWidth(PAGE_WIDTH)
 
     local PRESET_TOP = -94
@@ -1130,15 +1199,15 @@ local function SpeechPage(page)
 end
 
 local PAGES = {
-    { Text.SETTINGS_TAB_GENERAL, "Ability_Creature_Cursed_03", GeneralPage },
-    { Text.SETTINGS_TAB_SPHERE, "INV_Misc_Gem_Amethyst_02", SpherePage },
-    { Text.SETTINGS_TAB_BUTTONS, "Trade_Engineering", ButtonsPage },
-    { Text.SETTINGS_TAB_MENUS, "INV_Misc_Book_01", MenusPage },
-    { Text.SETTINGS_TAB_DEBUFFS, Core.SPELLS.baneOfAgony[1], DebuffsPage },
-    { Text.SETTINGS_TAB_CONTROLS, "Spell_Shadow_Cripple", ControlsPage },
-    { Text.SETTINGS_TAB_ALERTS, "INV_Misc_Bell_01", AlertsPage },
-    { Text.SETTINGS_TAB_REMINDERS, "INV_Misc_PocketWatch_01", RemindersPage },
-    { Text.SETTINGS_TAB_SPEECH, "ability_warrior_rallyingcry", SpeechPage },
+    { "SETTINGS_TAB_GENERAL", "Ability_Creature_Cursed_03", GeneralPage },
+    { "SETTINGS_TAB_SPHERE", "INV_Misc_Gem_Amethyst_02", SpherePage },
+    { "SETTINGS_TAB_BUTTONS", "Trade_Engineering", ButtonsPage },
+    { "SETTINGS_TAB_MENUS", "INV_Misc_Book_01", MenusPage },
+    { "SETTINGS_TAB_DEBUFFS", Core.SPELLS.baneOfAgony[1], DebuffsPage },
+    { "SETTINGS_TAB_CONTROLS", "Spell_Shadow_Cripple", ControlsPage },
+    { "SETTINGS_TAB_ALERTS", "INV_Misc_Bell_01", AlertsPage },
+    { "SETTINGS_TAB_REMINDERS", "INV_Misc_PocketWatch_01", RemindersPage },
+    { "SETTINGS_TAB_SPEECH", "ability_warrior_rallyingcry", SpeechPage },
 }
 
 function Window.ShowPage(index)
@@ -1147,7 +1216,7 @@ function Window.ShowPage(index)
         page:SetShown(i == index)
         tabs[i]:SetChecked(i == index)
     end
-    pageTitle:SetText(PAGES[index][1])
+    pageTitle:SetText(Text[PAGES[index][1]])
 end
 
 local function SavePlace()
@@ -1167,6 +1236,7 @@ CreateLockButton = function()
     local button = CreateFrame("Button", "NecrosisOGLockButton", frame, "UIPanelButtonTemplate")
     button:SetSize(60, 18)
     button:SetPoint("RIGHT", frame, "TOPRIGHT", -64, -24)
+    FitButton(button, 100)
     button:SetScript("OnClick", function(self)
         Changed(SetLocked)(not db().locked)
         ns.Tips.Redraw(self)
@@ -1304,7 +1374,7 @@ local function Create()
             end
             Window.ShowPage(i)
         end)
-        ns.Tips.Attach(tab, function(tooltip) ns.Tips.Title(tooltip, def[1]) end, "ANCHOR_RIGHT", true)
+        ns.Tips.Attach(tab, function(tooltip) ns.Tips.Title(tooltip, Text[def[1]]) end, "ANCHOR_RIGHT", true)
         tabs[i] = tab
     end
 
@@ -1331,7 +1401,7 @@ local function RegisterGameOptions()
     if type(Settings) ~= "table" or type(Settings.RegisterCanvasLayoutCategory) ~= "function" then return end
     local panel = CreateFrame("Frame")
     Label(panel, Text.SETTINGS_TITLE, 16, -16, "GameFontNormalLarge")
-    local text = Label(panel, Text.SET_OPTIONS_TEXT, 16, -44, "GameFontHighlight")
+    local text = Label(panel, Text.SET_OPTIONS_TEXT, 16, -44, "GameFontHighlight", false)
     text:SetWidth(500)
     local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     open:SetSize(170, 24)

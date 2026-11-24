@@ -40,6 +40,16 @@ function ns.TooltipsOn()
     return not (ns.db and ns.db.tooltips == false)
 end
 
+function ns.ApplyLanguage()
+    local client = type(GetLocale) == "function" and GetLocale() or "enUS"
+    local code = Core.ResolveLanguage(ns.db and ns.db.language, client, ns.Locales)
+    local locale = ns.Locales[code]
+    Core.MergeText(Text, ns.TextEnglish, locale and locale.text)
+    Core.SetTimeUnits(Text.TIME_MIN, Text.TIME_HOUR, Text.TIME_DAY)
+    Core.SetSoundSuffix(locale and locale.sound)
+    ns.language, ns.clientLanguage = code, Core.ResolveLanguage(Core.LANGUAGE_AUTO, client, ns.Locales)
+end
+
 function ns.Version()
     return C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
 end
@@ -75,6 +85,7 @@ events:SetScript("OnEvent", function(self, event, name)
             NecrosisOGDB = Core.ApplyDefaults(Core.Migrate(NecrosisOGDB), Core.DEFAULTS)
         end
         ns.db = NecrosisOGDB
+        ns.ApplyLanguage()
         ns.Fire(ns.onLoad, ns.db)
     end
 end)
