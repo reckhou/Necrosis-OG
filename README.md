@@ -6,6 +6,8 @@ Every veteran Warlock remembers it: One Soul Shard Sphere, ringed by buttons for
 
 **The same sphere, rebuilt for today.** It is made for World of Warcraft: Forever and nothing else, and every detail is polished. No more awkward UI deadlocks in the middle of combat. It feels just like you remember, with tons of quality-of-life features on top.
 
+**Supported languages** — English, Deutsch, Français, Español (España), Español (Latinoamérica), Português (Brasil), Русский, 한국어, 简体中文, 繁體中文.
+
 ## Features
 
 **Quick Start:** Right-click the sphere and click **Start Demo**.
