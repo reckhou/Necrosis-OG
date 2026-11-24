@@ -13,6 +13,7 @@ Every veteran Warlock remembers it: One Soul Shard Sphere, ringed by buttons for
 - **Customisable Chat Lines:** Up to 100 presets for each of your own summon lines and Warlock spells. Live your OG Warlock life in style.
 - **Smart Reminders:** Know when you are missing an essential buff or a Healthstone, when a Soulstone is ready, or when your minion is MIA.
 - **Demons, Curses and Utility Menus:** Every spell you know, one click away. No need to clutter your action bars.
+- **Smart Rotation:** Missing DoT is highlited on action bar. Smart Wrack calculates the timing of DoT refreshing. (Supports standard action bar and Bartender 4)
 - **Enemy Tracker:** Track your DoTs and curses on every enemy, with their health and your threat.
 - **Missing Debuff Tracking:** See which of your DoTs and curses are missing, on your target or nameplates, and the next one to cast glows on your action bars.
 - **Proc Alerts:** Alerts for Nightfall, Decimation, Amplify Curse and Fear immunity.
