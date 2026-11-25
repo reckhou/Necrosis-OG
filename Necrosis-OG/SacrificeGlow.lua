@@ -65,7 +65,7 @@ end
 local function SacrificeButtons()
     local found = {}
     for _, button in ipairs(ns.ActionButtons.Bar()) do
-        if SlotIsSacrifice(button.action) then found[#found + 1] = button end
+        if SlotIsSacrifice(ns.ActionButtons.Slot(button)) then found[#found + 1] = button end
     end
     for _, pet in ipairs(ns.ActionButtons.Pet()) do
         local ok, spellID = pcall(function() return select(7, GetPetActionInfo(pet.index)) end)

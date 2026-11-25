@@ -49,7 +49,18 @@ end
 
 local function KeysHidden(button)
     local config = button.config
-    return type(config) == "table" and type(config.hideElements) == "table" and config.hideElements.hotkey == true
+    if type(config) == "table" and type(config.hideElements) == "table" and config.hideElements.hotkey == true then
+        return true
+    end
+    local barKey, mod = ns.ActionButtons.EllesmereBar(button)
+    if barKey and mod then
+        local eab = mod.EAB
+        local bars = type(eab) == "table" and type(eab.db) == "table" and type(eab.db.profile) == "table"
+            and eab.db.profile.bars
+        local bar = type(bars) == "table" and bars[barKey]
+        if type(bar) == "table" and bar.hideKeybind == true then return true end
+    end
+    return false
 end
 
 local function ActionText(slot)
@@ -58,7 +69,7 @@ local function ActionText(slot)
 end
 
 local function MacroKey(button)
-    local slot = button.action
+    local slot = ns.ActionButtons.Slot(button)
     if type(slot) ~= "number" or IsSecret(slot) then return nil end
     local ok, kind = pcall(GetActionInfo, slot)
     if not ok or IsSecret(kind) or kind ~= "macro" then return nil end
@@ -79,11 +90,20 @@ local function ShowKey(button)
     Write(hotkey, text)
     hotkey:Show()
     changed[button] = true
+    return true
 end
 
--- get the shortcut of the action slot
+-- put back slot own keybind text
 local function OwnKey(button)
-    if type(button.UpdateHotkeys) == "function" then
+    local barKey, mod = ns.ActionButtons.EllesmereBar(button)
+    if barKey and mod then
+        local eab = mod.EAB
+        if type(eab) == "table" and type(eab.ApplyFontsForBar) == "function" then
+            pcall(eab.ApplyFontsForBar, eab, barKey)
+            return
+        end
+    end
+    if not ns.ActionButtons.IsLibrary(button) and type(button.UpdateHotkeys) == "function" then
         pcall(button.UpdateHotkeys, button, button.buttonType)
         return
     end
@@ -93,6 +113,7 @@ local function OwnKey(button)
     if ok and type(key) == "string" and key ~= "" and not KeysHidden(button) then
         Write(hotkey, key)
         hotkey:Show()
+        if type(button.postKeybind) == "function" then button.postKeybind(nil, button) end
     else
         Write(hotkey, RANGE_INDICATOR or "")
         hotkey:Hide()
@@ -113,7 +134,8 @@ end
 
 local function Hook(button)
     if hooked[button] then return end
-    if type(button.UpdateHotkeys) == "function" then
+    if not ns.ActionButtons.IsLibrary(button) and not ns.ActionButtons.EllesmereBar(button)
+        and type(button.UpdateHotkeys) == "function" then
         hooked[button] = true
         hooksecurefunc(button, "UpdateHotkeys", function() ShowKey(button) end)
     elseif type(button.HotKey) == "table" and type(button.HotKey.SetText) == "function" then
@@ -127,9 +149,7 @@ local function Refresh()
     buttons = ns.ActionButtons.Bar()
     for _, button in ipairs(buttons) do
         Hook(button)
-        if MacroKey(button) then
-            ShowKey(button)
-        elseif changed[button] then
+        if not ShowKey(button) and changed[button] then
             changed[button] = nil
             OwnKey(button)
         end
@@ -145,15 +165,21 @@ local function RefreshSoon()
 end
 
 local function SetPushed(key, on)
+    if not on then
+        for button, pressedKey in pairs(pushed) do
+            if pressedKey == key then
+                pushed[button] = nil
+                if button:GetButtonState() == "PUSHED" then pcall(button.SetButtonState, button, "NORMAL") end
+            end
+        end
+        return
+    end
     for _, button in ipairs(buttons) do
         if MacroKey(button) == key and button.GetButtonState and button.SetButtonState then
             local state = button:GetButtonState()
-            if on and state == "NORMAL" then
+            if state == "NORMAL" then
                 pcall(button.SetButtonState, button, "PUSHED")
-                pushed[button] = true
-            elseif not on and pushed[button] then
-                pushed[button] = nil
-                if state == "PUSHED" then pcall(button.SetButtonState, button, "NORMAL") end
+                pushed[button] = key
             end
         end
     end
@@ -191,4 +217,4 @@ table.insert(ns.onSphere, function()
     Refresh()
 end)
 
-BindingKeys.Pushed = function(button) return pushed[button] == true end
+BindingKeys.Pushed = function(button) return pushed[button] ~= nil end

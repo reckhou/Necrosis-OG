@@ -492,7 +492,7 @@ local function Scan()
         if glow then rotWanted[glow] = true end
     end
     for _, button in ipairs(ns.ActionButtons.Bar()) do
-        local spell = ActionSpell(button.action)
+        local spell = ActionSpell(ns.ActionButtons.Slot(button))
         if helper and spell then
             if WRACK_IDS[spell] then Helper(button, "wrack") end
             if procIds[spell] == "shadowTrance" then Helper(button, "bolt") end

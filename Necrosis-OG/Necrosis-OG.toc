@@ -12,11 +12,11 @@
 ## Notes-zhCN: 一个经典球体。术士的必备工具。
 ## Category: Class
 ## IconTexture: Interface\AddOns\Necrosis-OG\Media\UI\AddonIcon
-## Version: 1.5.0
+## Version: 1.6.0
 ## X-License: GPL-2.0-or-later
 ## X-Website: https://github.com/reckhou/Necrosis-OG
 ## SavedVariablesPerCharacter: NecrosisOGDB
-## OptionalDeps: Bartender4
+## OptionalDeps: Bartender4, Dominos, ElvUI, EllesmereUIActionBars, EUIStandaloneActionBars
 ## AddonCompartmentFunc: NecrosisOG_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: NecrosisOG_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: NecrosisOG_OnAddonCompartmentLeave
