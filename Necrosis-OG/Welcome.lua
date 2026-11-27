@@ -25,24 +25,31 @@ local Plain, InCombat = ns.Game.Plain, ns.Game.InCombat
 local Welcome = {}
 ns.Welcome = Welcome
 
-local LINE_GAP = 12
+local LINE_GAP = 8
+local PRESET_GAP = 7
 local BUTTON_HEIGHT = 22
 local BUTTON_GAP = 4
 local BUTTON_BOTTOM = 14
 local LINK_HEIGHT = 14
 
-local PICTURE = 40
+local PICTURE = 36
 local FOCUS_SIZE = 24
 local TEXT_LEFT = PICTURE + 12
 local SAMPLE_SHARDS = 16
 local SAMPLE_ENEMY = 1
-local SAMPLE_GAP = 6
+local SAMPLE_GAP = 4
 local BUTTON_PICTURES = { "SoulstoneButton-02", "HealthstoneButton-02", "PetMenuButton-01", "CurseMenuButton-01" }
 local GOLD = "|cffffd100%s|r %s"
 local WARNING_COLOUR = { 1, 0.48, 0.35 }
 local PLATES = "nameplateShowEnemies"
+local PRESET_DESC = {
+    full = "WELCOME_PRESET_FULL",
+    lite = "WELCOME_PRESET_LITE",
+    minimal = "WELCOME_PRESET_MINIMAL",
+}
 
 local card
+local welcomePending = false
 
 local function db() return ns.db end
 
@@ -123,6 +130,15 @@ local function Closed()
     ns.Print(Text.WELCOME_AGAIN)
 end
 
+local function ApplyPreset(presetKey)
+    local changes = Core.PresetChanges(presetKey)
+    if not changes then return end
+    for _, change in ipairs(changes) do
+        ns.SetSetting(change.path, change.value)
+    end
+    if ns.SettingsWindow and ns.SettingsWindow.Refresh then ns.SettingsWindow.Refresh() end
+end
+
 local function Create()
     card = CreateFrame("Frame", "NecrosisOGWelcomeFrame", UIParent)
     local _, heading = ns.SettingsWindow.ClassicFrame(card, Text.SETTINGS_TITLE)
@@ -133,6 +149,17 @@ local function Create()
 
     local page = ns.SettingsWindow.NewPage(card)
     card.page = page
+    card.presets = {}
+    local presetCount = #Core.LAYOUT_PRESET_ORDER
+    local presetWidth = math.floor((ns.SettingsWindow.PAGE_WIDTH - PRESET_GAP * (presetCount - 1)) / presetCount)
+    for i, key in ipairs(Core.LAYOUT_PRESET_ORDER) do
+        local preset = Core.LAYOUT_PRESETS[key]
+        local button = Button(page, Text[preset.label], presetWidth, function() ApplyPreset(key) end)
+        button:SetPoint("TOPLEFT", page, "TOPLEFT", (i - 1) * (presetWidth + PRESET_GAP), 0)
+        card.presets[key] = button
+    end
+    card.presetDesc = Line(page)
+    card.presetDesc:SetTextColor(0.85, 0.85, 0.85)
     local textWidth = ns.SettingsWindow.PAGE_WIDTH - TEXT_LEFT
     card.spherePicture = SpherePicture(page)
     card.sphere = Line(page, nil, textWidth)
@@ -157,11 +184,11 @@ local function Create()
     card.note:SetText(Text.WELCOME_NOTE)
     card.note:SetTextColor(0.6, 0.6, 0.6)
 
-    card.demoButton = Button(page, Text.WELCOME_SHOW_ALL, 112, function() ns.SetDemo(not ns.demoData) end)
+    card.demoButton = Button(page, Text.SET_DEMO_START, 104, function() ns.SetDemo(not ns.demoData) end)
     card.demoButton:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 4, BUTTON_BOTTOM)
-    card.lockButton = Button(page, Text.LOCK_BUTTON_LOCK, 56, function() ns.SettingsWindow.SetLocked(not db().locked) end)
+    card.lockButton = Button(page, Text.LOCK_BUTTON_LOCK, 64, function() ns.SettingsWindow.SetLocked(not db().locked) end)
     card.lockButton:SetPoint("LEFT", card.demoButton, "RIGHT", BUTTON_GAP, 0)
-    card.settingsButton = Button(page, Text.SET_OPEN, 104, function() ns.SettingsWindow.Open() end)
+    card.settingsButton = Button(page, Text.SET_OPEN, 106, function() ns.SettingsWindow.Open() end)
     card.settingsButton:SetPoint("LEFT", card.lockButton, "RIGHT", BUTTON_GAP, 0)
 
     if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, card:GetName()) end
@@ -176,7 +203,10 @@ end
 -- put lines from top to down, warning only show when nameplates off
 local function Layout()
     local page = card.page
-    local y = 0
+    local y = BUTTON_HEIGHT + 4
+    card.presetDesc:ClearAllPoints()
+    card.presetDesc:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
+    y = y + card.presetDesc:GetStringHeight() + LINE_GAP
     for _, row in ipairs({ { card.spherePicture, card.sphere }, { card.buttonsPicture, card.buttons } }) do
         row[1]:ClearAllPoints()
         row[1]:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
@@ -213,27 +243,51 @@ end
 
 function Welcome.Refresh()
     if not (card and card:IsShown()) then return end
-    local locked = db().locked
-    card.spherePicture.texture:SetTexture(Core.ShardTexture(db().skin, SAMPLE_SHARDS))
+    local saved = db()
+    local locked = saved.locked
+    local active = Core.ActiveLayoutPreset(saved)
+    for key, button in pairs(card.presets) do
+        if active == key then
+            if button.LockHighlight then button:LockHighlight() end
+        else
+            if button.UnlockHighlight then button:UnlockHighlight() end
+        end
+    end
+    card.presetDesc:SetText(Text[PRESET_DESC[active] or "WELCOME_PRESET_CUSTOM"])
+    card.spherePicture.texture:SetTexture(Core.ShardTexture(saved.skin, SAMPLE_SHARDS))
     card.lockButton:SetText(locked and Text.LOCK_BUTTON_UNLOCK or Text.LOCK_BUTTON_LOCK)
-    card.demoButton:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.WELCOME_SHOW_ALL)
+    card.demoButton:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.SET_DEMO_START)
     local fighting = InCombat()
+    card.demoButton:SetEnabled(not fighting)
     card.switchOn:SetEnabled(not fighting)
     if fighting then card.switchOn.label:SetTextColor(0.5, 0.5, 0.5) else card.switchOn.label:SetTextColor(1, 0.82, 0) end
     Layout()
 end
 
+function Welcome.IsActive()
+    return welcomePending or (card ~= nil and card:IsShown() == true)
+end
+
 function Welcome.Show()
+    welcomePending = false
     if not card then Create() end
+    if ns.UnlockPanel and ns.UnlockPanel.HideForWelcome then ns.UnlockPanel.HideForWelcome() end
     card:Show()
 end
 
 table.insert(ns.onDemoData, function() Welcome.Refresh() end)
 table.insert(ns.onPlacing, function() Welcome.Refresh() end)
+local watchedPaths = {}
+for _, entry in ipairs(Core.FRAME_LIST) do
+    for _, path in ipairs(entry.paths) do watchedPaths[#watchedPaths + 1] = path end
+end
+
+ns.OnSetting(watchedPaths, function() Welcome.Refresh() end)
 
 table.insert(ns.onSphere, function()
     if not (ns.db and ns.db.welcomed == false) then return end
     ns.db.welcomed = true
+    welcomePending = true
     if C_Timer and C_Timer.After then C_Timer.After(1, Welcome.Show) else Welcome.Show() end
 end)
 

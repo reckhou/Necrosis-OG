@@ -359,8 +359,12 @@ function Bars.AddDriver(bar, state)
     RegisterStateDriver(bar.frame, state, Core.BAR_DRIVERS[state])
 end
 
-table.insert(ns.onPlacing, function(on)
-    for _, bar in ipairs(bars) do bar.outline:SetShown(on == true) end
+local function UpdateOutline(bar)
+    bar.outline:SetShown(ns.placing == true and Saved(bar).on ~= false)
+end
+
+table.insert(ns.onPlacing, function()
+    for _, bar in ipairs(bars) do UpdateOutline(bar) end
 end)
 
 table.insert(ns.onRecall, function()
@@ -375,4 +379,9 @@ Bars.All = function() return bars end
 
 for _, saved in ipairs({ "procBar", "reminderBar" }) do
     ns.OnSetting(saved .. ".opacity", function() Bars.ApplyOpacity(saved) end)
+    ns.OnSetting(saved .. ".on", function()
+        for _, bar in ipairs(bars) do
+            if bar.spec.saved == saved then UpdateOutline(bar) end
+        end
+    end)
 end

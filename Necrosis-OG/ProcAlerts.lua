@@ -153,15 +153,17 @@ local function RefreshAll()
     for _, proc in ipairs(PROCS) do
         local item = icons[proc.key]
         item.ready = SwitchedOn(proc.key)
-        item.wanted = (active[proc.key] or demoOn[proc.key] or ns.placing) == true
+        item.wanted = (active[proc.key] or demoOn[proc.key] or (ns.placing and not ns.demoData)) == true
     end
     Bars.Layout(bar)
     if ns.BarHighlight then
-        local glowing = {}
+        local glowing, procs = {}, {}
         for _, proc in ipairs(PROCS) do
-            glowing[proc.key] = active[proc.key] and SwitchedOn(proc.key) and not glowSeen[proc.key] or nil
+            local on = (active[proc.key] or demoOn[proc.key]) == true
+            procs[proc.key] = on or nil
+            glowing[proc.key] = on and SwitchedOn(proc.key) and (demoOn[proc.key] or not glowSeen[proc.key]) or nil
         end
-        ns.BarHighlight.SetProcs(glowing, active)
+        ns.BarHighlight.SetProcs(glowing, procs)
     end
 end
 

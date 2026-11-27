@@ -35,6 +35,8 @@ local TAB_ART = "Interface\\SpellBook\\SpellBook-SkillLineTab"
 local ROW_HEIGHT = 18
 local MIN_ROW_HEIGHT = 16
 local SLIDER_WIDTH = 120
+local SLIDER_STEP_BTN = 16
+local SLIDER_STEP_GAP = 2
 local RIGHT_COLUMN = 150
 local SLIDER_RIGHT = 165
 local DRAG_PURPLE = { 0xFF / 255, 0x50 / 255, 0xFF / 255 }
@@ -141,9 +143,10 @@ end
 -- slider with value in the title, opts.snap is a value drag will stick to, opts.wheel is mouse wheel move one step
 local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     local slider = CreateFrame("Slider", nil, page, "UISliderTemplateWithLabels")
-    slider:SetSize(SLIDER_WIDTH, 16)
+    local inset = SLIDER_STEP_BTN + SLIDER_STEP_GAP
+    slider:SetSize(SLIDER_WIDTH - 2 * inset, 16)
     if slider.Text.SetFontObject then slider.Text:SetFontObject("GameFontHighlightSmall") end
-    slider:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
+    slider:SetPoint("TOPLEFT", page, "TOPLEFT", x + inset, y)
     slider:SetMinMaxValues(low, high)
     slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
@@ -170,13 +173,25 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
         Title(value)
         if math.abs(value - get()) > step / 2 then Changed(set)(value) end
     end)
-    if opts and opts.wheel then
+    local function Step(delta)
+        if slider.IsEnabled and slider:IsEnabled() == false then return end
+        slider.stepping = true
+        slider:SetValue(math.max(low, math.min(high, Core.RoundToStep(slider:GetValue() + delta * step, step))))
+        slider.stepping = false
+    end
+    local function StepButton(label, delta, point, relPoint, offset)
+        local button = CreateFrame("Button", nil, slider, "UIPanelButtonTemplate")
+        button:SetSize(SLIDER_STEP_BTN, SLIDER_STEP_BTN)
+        button:SetPoint(point, slider, relPoint, offset, 0)
+        button:SetText(label)
+        button:SetScript("OnClick", function() Step(delta) end)
+        return button
+    end
+    slider.minus = StepButton("-", -1, "RIGHT", "LEFT", -SLIDER_STEP_GAP)
+    slider.plus = StepButton("+", 1, "LEFT", "RIGHT", SLIDER_STEP_GAP)
+    if not (opts and opts.wheel == false) then
         slider:EnableMouseWheel(true)
-        slider:SetScript("OnMouseWheel", function(self, delta)
-            self.stepping = true
-            self:SetValue(math.max(low, math.min(high, Core.RoundToStep(self:GetValue() + delta * step, step))))
-            self.stepping = false
-        end)
+        slider:SetScript("OnMouseWheel", function(_, delta) Step(delta) end)
     end
     function slider:Refresh()
         self.refreshing = true
@@ -197,6 +212,8 @@ local function GreyedBy(widget, on)
         self:SetAlpha(enabled and 1 or 0.5)
         if self.pageLabel then self.pageLabel:SetAlpha(enabled and 1 or 0.5) end
         if type(self.SetEnabled) == "function" then pcall(self.SetEnabled, self, enabled) end
+        if self.minus and type(self.minus.SetEnabled) == "function" then self.minus:SetEnabled(enabled) end
+        if self.plus and type(self.plus.SetEnabled) == "function" then self.plus:SetEnabled(enabled) end
     end
     return widget
 end
@@ -753,7 +770,7 @@ local function MenusPage(page)
             return select(axis, Core.MenuShift(shift))
         end, function(value)
             ns.Buttons.SetMenuShift(selectedMenu, axis, value)
-        end)
+        end, nil, { snap = 0 })
     end
     ShiftSlider(5, Text.SET_MENU_SHIFT_X, 1)
     ShiftSlider(SLIDER_RIGHT, Text.SET_MENU_SHIFT_Y, 2)
@@ -859,9 +876,9 @@ end
 
 local function OffsetSliders(body, y, low, high, get, set)
     Slider(body, 5, y, Text.SET_MENU_SHIFT_X, low, high, 1, function() return get("x") end,
-        function(value) set("x", value) end)
+        function(value) set("x", value) end, nil, { snap = 0 })
     Slider(body, SLIDER_RIGHT, y, Text.SET_MENU_SHIFT_Y, low, high, 1, function() return get("y") end,
-        function(value) set("y", value) end)
+        function(value) set("y", value) end, nil, { snap = 0 })
 end
 
 local function ReminderSection(content, title, saved, clamp, low, high)
@@ -1272,10 +1289,13 @@ function Window.ClassicFrame(window, titleText)
     local portrait = window:CreateTexture(nil, "BACKGROUND", nil, 1)
     local PORTRAIT_X, PORTRAIT_Y = 37, -36
     local disc = window:CreateTexture(nil, "BACKGROUND", nil, 0)
-    disc:SetSize(60, 60)
+    disc:SetSize(72, 72)
     disc:SetPoint("CENTER", window, "TOPLEFT", PORTRAIT_X, PORTRAIT_Y)
-    disc:SetTexture(Core.UiTexture("Mask"))
-    disc:SetVertexColor(0, 0, 0, 1)
+    disc:SetColorTexture(0, 0, 0, 1)
+    local discMask = window:CreateMaskTexture()
+    discMask:SetTexture(Core.UiTexture("Mask"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    discMask:SetAllPoints(disc)
+    disc:AddMaskTexture(discMask)
     portrait:SetSize(54, 54)
     portrait:SetPoint("CENTER", window, "TOPLEFT", PORTRAIT_X, PORTRAIT_Y)
     portrait:SetTexture(Core.UiTexture("SettingsLogo"))
@@ -1392,6 +1412,14 @@ end
 function Window.Open()
     if not frame then Create() end
     frame:Show()
+end
+
+function Window.Close()
+    if frame then frame:Hide() end
+end
+
+function Window.Refresh()
+    if frame and frame:IsShown() then RefreshAll() end
 end
 
 function Window.SetLocked(on) Changed(SetLocked)(on) end

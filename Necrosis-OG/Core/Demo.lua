@@ -41,7 +41,7 @@ Core.DEMO = {
     reminderStep = 2.5,
     reminderSizes = { 3, 4, 3, 2, 4, 3 },
     missingStep = 2.5,
-    missingSets = { { 1, 2, 3, 4, 5, 6 }, { 2, 3, 5, 6 }, { 3, 6 }, { 6 }, { 1, 3, 4 }, { 1, 2, 4, 6 } },
+    missingSets = { { 1, 2, 3, 4, 5, 6 }, { 2, 3, 5, 6 }, { 3, 6 }, { 6 }, {}, { 1, 3, 4 }, { 1, 2, 4, 6 } },
     shardStep = 0.5,
     threatStep = 0.25, threatPerStep = 5,
 }
@@ -69,6 +69,20 @@ function Core.DemoRemindersOn(step, keys, sizes)
     local newest = step % count
     for back = 0, size - 1 do on[keys[(newest - back) % count + 1]] = true end
     return on
+end
+
+-- pick the first known family that is missing in demo, return its place
+function Core.DemoMissingNext(demoSet, allFamilies, knownFamilies)
+    if type(demoSet) ~= "table" or type(allFamilies) ~= "table" or type(knownFamilies) ~= "table" then return nil end
+    local missing = {}
+    for _, index in ipairs(demoSet) do
+        local family = allFamilies[index]
+        if family and family.key then missing[family.key] = true end
+    end
+    for place, family in ipairs(knownFamilies) do
+        if missing[family.key] then return place end
+    end
+    return nil
 end
 
 -- color at x on the points list { x, r, g, b }, blend like game curve

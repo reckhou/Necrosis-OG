@@ -60,6 +60,7 @@ local textImmune = false
 local immuneGuids = {}
 local siphonCastAt = -100
 local siphonSkipped = false
+local demoSet
 
 local function Knows(id) return Plain(C_SpellBook.IsSpellKnown, id) == true end
 
@@ -356,23 +357,34 @@ local function PruneEstimates()
     end
 end
 
+local function DemoNextPlace()
+    if not demoSet then return nil end
+    local timers = ns.db.timers
+    local allFamilies = Core.EnemySlotsKnown(KnowsFamily, true, timers.trackOff, timers.trackOrder)
+    return Core.DemoMissingNext(demoSet, allFamilies, families)
+end
+
 local function TargetOk()
-    return ns.db.timers.barHighlight.on ~= false and Plain(UnitCanAttack, "player", "target") == true
+    if ns.db.timers.barHighlight.on == false then return false end
+    if demoSet then return true end
+    return Plain(UnitCanAttack, "player", "target") == true
         and Plain(UnitIsDeadOrGhost, "target") == false
 end
 
 local function BoltFirst()
-    return HelperOn() and TargetOk() and not channelling and procActive.shadowTrance == true
+    return HelperOn() and TargetOk() and not (not demoSet and channelling) and procActive.shadowTrance == true
 end
 
 -- light the spell picked by wrack rotation
 local function RefreshRotation()
     local active = HelperOn() and TargetOk()
-    local native = Game.InCombat() or nativeRequired
+    local native = not demoSet and (Game.InCombat() or nativeRequired)
     local choice, soon
     if active then
-        soon = SoonPlace(native, Now())
-        choice = Core.RotationChoice({ channelling = channelling, missing = not native and NextPlace() or nil,
+        soon = not demoSet and SoonPlace(native, Now()) or nil
+        local missing
+        if demoSet then missing = DemoNextPlace() elseif not native then missing = NextPlace() end
+        choice = Core.RotationChoice({ channelling = not demoSet and channelling or false, missing = missing,
             soon = soon, bolt = procActive.shadowTrance == true })
     end
     local boltFirst = BoltFirst()
@@ -392,7 +404,7 @@ local function RefreshRotation()
 end
 
 local function UpdateTicker()
-    local wanted = HelperOn() and TargetOk() and #rotShown > 0
+    local wanted = not demoSet and HelperOn() and TargetOk() and #rotShown > 0
     if wanted and not rotationTicker and C_Timer and C_Timer.NewTicker then
         rotationTicker = C_Timer.NewTicker(0.1, RefreshRotation)
     elseif not wanted and rotationTicker then
@@ -413,8 +425,9 @@ end
 
 local function RefreshProcs()
     local helper = HelperOn()
+    local channel = not demoSet and channelling
     for _, glow in ipairs(procShown) do
-        local on = procOn[glow.key] == true and not (helper and (channelling or glow.key == "shadowTrance"))
+        local on = procOn[glow.key] == true and not (helper and (channel or glow.key == "shadowTrance"))
         glow.alert:SetShown(on)
         if on then Play(glow) end
     end
@@ -431,11 +444,13 @@ function BarHighlight.SetProcs(state, active)
 end
 
 local function Refresh(resync)
-    local target = ns.db.timers.barHighlight.on ~= false and Plain(UnitCanAttack, "player", "target") == true
-        and Plain(UnitIsDeadOrGhost, "target") == false
-    local native = Game.InCombat() or nativeRequired
-    local nextPlace = target and not native and NextPlace() or nil
-    local wrackChannel = channelling and HelperOn()
+    local target = TargetOk()
+    local native = not demoSet and (Game.InCombat() or nativeRequired)
+    local nextPlace
+    if target then
+        if demoSet then nextPlace = DemoNextPlace() elseif not native then nextPlace = NextPlace() end
+    end
+    local wrackChannel = not demoSet and channelling and HelperOn()
     if ns.MissingDebuffs then ns.MissingDebuffs.SetWrackChannel(wrackChannel) end
     local hold = wrackChannel or BoltFirst()
     for _, glow in ipairs(shown) do
@@ -669,6 +684,22 @@ table.insert(ns.onSphere, function()
         end
     end)
     table.insert(ns.onSpellsChanged, Rebuild)
+    if ns.onDemoData then
+        table.insert(ns.onDemoData, function(on)
+            demoSet = nil
+            if on then
+                local step = 0
+                ns.DemoEvery(Core.DEMO.missingStep, function()
+                    local sets = Core.DEMO.missingSets
+                    demoSet = sets[step % #sets + 1]
+                    step = step + 1
+                    Refresh()
+                end)
+            else
+                Refresh(true)
+            end
+        end)
+    end
     ns.ActionButtons.OnChange(ScanSoon)
     ns.OnSetting(Core.BAR_HIGHLIGHT_SETTINGS, Rebuild)
     Rebuild()

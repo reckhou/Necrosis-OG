@@ -56,7 +56,7 @@ local function Send(text, chatType)
     return ok and not blocked
 end
 
-local SLASH = { SAY = "/s ", YELL = "/y ", PARTY = "/p ", EMOTE = "/e " }
+local SLASH = { SAY = "/s ", YELL = "/y ", PARTY = "/p ", RAID = "/ra ", EMOTE = "/e " }
 
 local function ToChatBox(text, chatType)
     local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
@@ -127,7 +127,7 @@ function Speech.Speak(subject, targetKind)
     local fallback = { player = "", target = Text.SPEECH_NO_TARGET, pet = Text.SPEECH_NO_PET }
     local emote = set.emote ~= "" and Core.FillSpeech(set.emote, names, fallback) or nil
     local line = set.line ~= "" and Core.FillSpeech(set.line, names, fallback) or nil
-    local channel = Core.SpeechChannel(settings.channel, Plain(IsInGroup) == true)
+    local channel = Core.SpeechChannel(settings.channel, Plain(IsInGroup) == true, Plain(IsInRaid) == true)
     if blockedHere then
         if line then ToChatBox(line, channel) else ToChatBox(emote, "EMOTE") end
         return

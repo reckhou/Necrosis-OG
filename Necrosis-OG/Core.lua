@@ -84,7 +84,7 @@ Core.DEFAULTS = {
         multiOn = true,
         trackOff = {},
         trackOrder = {},
-        targetReminder = { on = false, scale = 120, opacity = 65, x = 159, y = -166 },
+        targetReminder = { on = true, scale = 120, opacity = 65, x = 159, y = -166 },
         plateReminder = { on = true, scale = 100, opacity = 50, x = 0, y = -10 },
         barHighlight = { on = true },
         wrackHelper = { on = true },

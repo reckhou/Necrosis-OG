@@ -509,12 +509,13 @@ local function UpdateFocus()
         pending = true
         return
     end
-    local placing = ns.placing
+    local enabled = On("focus")
+    local placing = ns.placing and enabled
     list.frame.shade:SetShown(placing)
     list.frame:EnableMouse(placing and not ns.db.locked)
     list.handle:SetShown(placing)
     list.handle:EnableMouse(placing and not ns.db.locked)
-    list.frame:SetShown(placing or On("focus"))
+    list.frame:SetShown(enabled)
 end
 
 -- red cover when spell can not reach focus
@@ -803,11 +804,18 @@ local function Layout(rows)
     if rows then controlRows = rows end
     local multi = lists.multi
     if not multi then return end
+    local multiOn = On("multi")
+    for _, line in ipairs(AllLines(multi)) do
+        if line.demo then line:SetShown(ns.demoData == true and multiOn) end
+    end
     Stack()
+    local anyOn = multiOn or ns.db.timers.controlOn ~= false
     local count = 0
-    for _, line in ipairs(AllLines(multi)) do if line:IsShown() and line.seq then count = count + 1 end end
+    for _, line in ipairs(AllLines(multi)) do
+        if line:IsShown() and line.seq then count = count + 1 end
+    end
     local controls = controlRows
-    local placing = ns.placing
+    local placing = ns.placing and anyOn
     multi.frame.shade:SetShown(placing)
     multi.frame.title:SetShown(placing and count + #controls == 0)
     local drag = placing and not ns.db.locked

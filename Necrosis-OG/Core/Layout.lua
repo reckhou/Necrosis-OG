@@ -325,3 +325,82 @@ function Core.CooldownLeft(start, duration, now)
     if start <= 0 or duration <= 2 then return 0 end
     return math.max(0, start + duration - now)
 end
+
+Core.FRAME_LIST = {
+    { key = "alertBar", paths = { "procBar.on" }, label = "SET_PROC_BAR" },
+    { key = "reminderBar", paths = { "reminderBar.on" }, label = "SET_REMINDER_BAR" },
+    { key = "multi", paths = { "timers.multiOn", "timers.controlOn" }, label = "SET_MULTI_ON" },
+    { key = "focus", paths = { "timers.focusOn" }, label = "SET_FOCUS_ON" },
+    { key = "missingDebuffs", paths = { "timers.targetReminder.on", "timers.plateReminder.on" }, label = "UNLOCK_MISSING_DEBUFFS" },
+    { key = "barHighlight", paths = { "timers.barHighlight.on" }, label = "SET_BAR_HIGHLIGHT" },
+}
+
+Core.LAYOUT_PRESET_ORDER = { "full", "lite", "minimal" }
+Core.LAYOUT_PRESETS = {
+    full = {
+        label = "UNLOCK_PRESET_FULL",
+        frames = { alertBar = true, reminderBar = true, multi = true, focus = true, missingDebuffs = true, barHighlight = true },
+    },
+    lite = {
+        label = "UNLOCK_PRESET_LITE",
+        frames = { alertBar = true, reminderBar = true, multi = false, focus = false, missingDebuffs = false, barHighlight = true },
+    },
+    minimal = {
+        label = "UNLOCK_PRESET_MINIMAL",
+        frames = { alertBar = false, reminderBar = false, multi = false, focus = false, missingDebuffs = false, barHighlight = false },
+    },
+}
+
+local function ReadPath(saved, path)
+    if type(saved) ~= "table" then return nil end
+    local cur = saved
+    for _, key in ipairs(Core.SplitPath(path)) do
+        if type(cur) ~= "table" then return nil end
+        cur = cur[key]
+    end
+    return cur
+end
+
+local function PathOn(saved, path)
+    local value = ReadPath(saved, path)
+    if value == nil then return ReadPath(Core.DEFAULTS, path) == true end
+    return value == true
+end
+
+function Core.FrameOn(saved, entry)
+    if type(entry) ~= "table" or type(entry.paths) ~= "table" then return false end
+    for _, path in ipairs(entry.paths) do
+        if PathOn(saved, path) then return true end
+    end
+    return false
+end
+
+-- find which preset match the saved setting, else custom
+function Core.ActiveLayoutPreset(saved)
+    for _, presetKey in ipairs(Core.LAYOUT_PRESET_ORDER) do
+        local preset = Core.LAYOUT_PRESETS[presetKey]
+        local matches = true
+        for _, entry in ipairs(Core.FRAME_LIST) do
+            if Core.FrameOn(saved, entry) ~= preset.frames[entry.key] then
+                matches = false
+                break
+            end
+        end
+        if matches then return presetKey end
+    end
+    return nil
+end
+
+-- list of path and value to set for one preset
+function Core.PresetChanges(presetKey)
+    local preset = Core.LAYOUT_PRESETS[presetKey]
+    if not preset then return nil end
+    local changes = {}
+    for _, entry in ipairs(Core.FRAME_LIST) do
+        local value = preset.frames[entry.key] == true
+        for _, path in ipairs(entry.paths) do
+            changes[#changes + 1] = { path = path, value = value }
+        end
+    end
+    return changes
+end

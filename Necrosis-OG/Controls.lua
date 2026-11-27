@@ -401,7 +401,7 @@ function UpdateShown()
         travel.onTaxi = Plain(UnitOnTaxi, "player") == true
     end
     local demoOn
-    if Buttons.DemoMode() and not ns.placing then
+    if Buttons.DemoMode() then
         for i = #READY, 1, -1 do READY[i] = nil end
         for _, key in ipairs(Core.CONTROL_BUTTON_KEYS) do
             if buttons[key].ready == true then READY[#READY + 1] = key end

@@ -125,10 +125,13 @@ function Core.ChoosePromo(promo, random)
     return promo ~= nil and random() < Core.SPEECH_PROMO_CHANCE
 end
 
--- party channel fall back to say when not in group
-function Core.SpeechChannel(choice, inGroup)
+-- party channel go raid when in raid, say when not in group
+function Core.SpeechChannel(choice, inGroup, inRaid)
     if choice == "YELL" then return "YELL" end
-    if choice == "PARTY" and inGroup then return "PARTY" end
+    if choice == "PARTY" then
+        if inRaid then return "RAID" end
+        if inGroup then return "PARTY" end
+    end
     return "SAY"
 end
 
