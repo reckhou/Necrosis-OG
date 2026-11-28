@@ -385,7 +385,11 @@ Core.LAYOUT_PRESETS = {
     minimal = {
         label = "UNLOCK_PRESET_MINIMAL",
         frames = { alertBar = false, reminderBar = false, multi = false, focus = false, missingDebuffs = false, barHighlight = false },
-        extra = { { path = "sphere.autoHide.on", value = true } },
+        extra = {
+            { path = "sphere.autoHide.on", value = true },
+            { path = "sphere.autoHide.fadedAlpha", value = 0 },
+            { path = "sphere.autoHide.combatShow", value = false },
+        },
     },
 }
 

@@ -29,11 +29,13 @@ local frame, fill, glow, arrivalFlash, countText, ring, needle
 local GLOW_ALPHA = 0.4
 local lastCount = 0
 local knownCount
+local heldCount
 local shownTexture
 local flashRemaining = 0
 local flashDriver
 local layoutPending = false
 local warnedThisFight = false
+
 local demoShards, demoThreat
 
 local IsSecret, InCombat = ns.Game.IsSecret, ns.Game.InCombat
@@ -127,16 +129,22 @@ function Sphere.UpdateShards(immediate)
     knownCount = count
     local gained = prev ~= nil and Core.OrbGain(prev, count) or 0
     if not immediate and gained > 0 and ns.Orbs then
-        local targetCount = count
+        local targetCount, held = count, heldCount or prev
         if ns.Orbs.Launch(gained, function()
             if demoShards ~= nil then return end
-            ApplyShards(math.min(targetCount, knownCount))
+            if heldCount then
+                local landed = math.max(heldCount, math.min(targetCount, knownCount))
+                heldCount = landed < knownCount and landed or nil
+                ApplyShards(landed)
+            end
             Sphere.Flash()
         end) then
+            heldCount = held
             return
         end
     end
-    ApplyShards(count)
+    if count ~= prev then heldCount = nil end
+    ApplyShards(heldCount or count)
 end
 
 local function ThreatSituation()
@@ -335,7 +343,7 @@ end)
 table.insert(ns.onDemoData, function(on)
     if not frame then return end
     if not on then
-        demoShards, demoThreat = nil, nil
+        demoShards, demoThreat, heldCount = nil, nil, nil
         if ns.Orbs then ns.Orbs.Clear() end
         Sphere.UpdateShards(true)
         Sphere.UpdateThreat()
@@ -345,21 +353,21 @@ table.insert(ns.onDemoData, function(on)
     ns.DemoEvery(Core.DEMO.shardStep, function()
         local nextCount = Core.DemoBounce(shardStep, Core.SHARD_COUNT_MAX)
         if prevDemo ~= nil and nextCount < prevDemo and ns.Orbs and ns.Orbs.ActiveCount() > 0 then return end
-        demoShards = nextCount
+        local gained = prevDemo ~= nil and nextCount > prevDemo
+        prevDemo = nextCount
         shardStep = shardStep + 1
-        if prevDemo ~= nil and demoShards > prevDemo and ns.Orbs and ns.Orbs.DemoOrigin then
+        if gained and ns.Orbs and ns.Orbs.DemoOrigin then
             local ox, oy = ns.Orbs.DemoOrigin()
-            local landedCount = demoShards
             if ox and ns.Orbs.Launch(1, function()
                 if demoShards == nil then return end
-                ApplyShards(landedCount)
+                demoShards = nextCount
+                ApplyShards(nextCount)
                 Sphere.Flash()
             end, ox, oy) then
-                prevDemo = demoShards
                 return
             end
         end
-        prevDemo = demoShards
+        demoShards = nextCount
         Sphere.UpdateShards(true)
     end)
     local levels, index = Core.DEMO.threatLevels, 1
