@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -27,7 +28,8 @@ ns.demoData = false
 ns.onDemo = {}
 ns.onDemoData = {}
 
-function ns.Silent() return ns.demoData == true end
+function ns.SoundsOn() return ns.db.soundsOn ~= false end
+function ns.Silent() return ns.demoData == true or not ns.SoundsOn() end
 
 local clock
 local repeats = {}

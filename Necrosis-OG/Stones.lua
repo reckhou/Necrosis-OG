@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -20,7 +21,8 @@
 -- stones in bags, learned ranks, weapon enchant and cooldown
 local _, ns = ...
 local Core, Text = ns.Core, ns.Text
-local Stones = { changed = {} }
+
+local Stones = { changed = {}, casts = {} }
 ns.Stones = Stones
 local IsSecret, Plain = ns.Game.IsSecret, ns.Game.Plain
 local STONES = {
@@ -242,24 +244,122 @@ function Stones.EnchantSpan(kind)
     return span.start, span.length, CooldownItem(kind)
 end
 
+function Stones.UnitFullName(unit)
+    if type(UnitName) ~= "function" then return nil end
+    local ok, name, second = pcall(UnitName, unit)
+    if not ok or IsSecret(name) or IsSecret(second) then return nil end
+    if name == UNKNOWNOBJECT then return nil end
+    return Core.FullName(name, second, Plain(RegionalUniqueNamesEnabled) == true)
+end
+
+function Stones.InGroup() return Plain(IsInGroup) == true end
+
+local function ClassFile(unit)
+    if type(UnitClass) ~= "function" then return nil end
+    local ok, _, file = pcall(UnitClass, unit)
+    if ok and not IsSecret(file) then return file end
+    return nil
+end
+
+function Stones.Group()
+    local members, complete = {}, true
+    if not Stones.InGroup() then return members, false, complete end
+    local raid = Plain(IsInRaid) == true
+    for i = 1, raid and 40 or 4 do
+        local unit = (raid and "raid" or "party") .. i
+        if Plain(UnitExists, unit) == true and not (raid and Plain(UnitIsUnit, unit, "player") == true) then
+            local name = Stones.UnitFullName(unit)
+            if name then
+                members[#members + 1] = { unit = unit, name = name, class = ClassFile(unit),
+                    role = Plain(UnitGroupRolesAssigned, unit) or "NONE",
+                    mainTank = Plain(GetPartyAssignment, "MAINTANK", unit) == true }
+            else
+                complete = false
+            end
+        end
+    end
+    return members, raid, complete
+end
+
+local previousTarget
+
+function Stones.PreviousTarget() return previousTarget end
+
+local function IsSelf(name) return Core.SamePlayer(name, Stones.UnitFullName("player")) end
+
+local function RosterName(members, name)
+    for _, member in ipairs(members) do
+        if member.name == name then return member.name end
+    end
+    for _, member in ipairs(members) do
+        if Core.SamePlayer(member.name, name) then return member.name end
+    end
+    return nil
+end
+
+local function CheckPreviousTarget()
+    if not previousTarget then return end
+    if not Stones.InGroup() then
+        previousTarget = nil
+        return
+    end
+    local members, _, complete = Stones.Group()
+    if complete and not IsSelf(previousTarget) and not RosterName(members, previousTarget) then previousTarget = nil end
+end
+
+local SOULSTONE_USES = Core.ToSet(Core.SOULSTONE_AURAS)
+
 local events = CreateFrame("Frame")
 
-local pendingSoulstone
+local pending
+
+local function IsSoulstoneUse(spellID) return not IsSecret(spellID) and SOULSTONE_USES[spellID] == true end
+
+local function SameCast(cast)
+    if not pending then return false end
+    return pending.cast == nil or IsSecret(cast) or cast == pending.cast
+end
+
+local function OnSoulstoneSent(target, cast)
+    local hidden = IsSecret(target)
+    if hidden or type(target) ~= "string" then target = "" end
+    local recipient
+    if target ~= "" then recipient = target elseif not hidden then recipient = Stones.UnitFullName("player") end
+    pending = { target = target, recipient = recipient }
+    if not IsSecret(cast) then pending.cast = cast end
+    ns.Fire(Stones.casts, "sent", pending)
+end
+
+local function OnSoulstoneUsed()
+    ns.db.buttons.soulstoneTarget = pending and pending.target or ""
+    ns.db.buttons.soulstoneAt = (GetServerTime and GetServerTime()) or time()
+    local recipient = pending and pending.recipient
+    pending = nil
+    if recipient and Stones.InGroup() then
+        local name = (IsSelf(recipient) and (Stones.UnitFullName("player") or recipient))
+            or RosterName((Stones.Group()), recipient)
+        if name then previousTarget = name end
+    end
+    ns.Fire(Stones.casts, "succeeded")
+end
+
 events:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     if event == "UNIT_SPELLCAST_SENT" then
-        if unit == "player" and not IsSecret(arg4) and arg4 == Core.SOULSTONE_USE_SPELL then
-            pendingSoulstone = (not IsSecret(arg2) and type(arg2) == "string") and arg2 or ""
-        end
+        if unit == "player" and IsSoulstoneUse(arg4) then OnSoulstoneSent(arg2, arg3) end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local spellID = arg3
         if unit == "player" and not IsSecret(spellID) and CREATE_SPELLS[spellID] then
             awaiting[CREATE_SPELLS[spellID]] = GetTime()
         end
-        if unit == "player" and not IsSecret(spellID) and spellID == Core.SOULSTONE_USE_SPELL then
-            ns.db.buttons.soulstoneTarget = pendingSoulstone or ""
-            ns.db.buttons.soulstoneAt = (GetServerTime and GetServerTime()) or time()
-            pendingSoulstone = nil
+        if unit == "player" and IsSoulstoneUse(spellID) then OnSoulstoneUsed() end
+    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_INTERRUPTED"
+        or event == "UNIT_SPELLCAST_FAILED" then
+        if unit == "player" and IsSoulstoneUse(arg3) and SameCast(arg2) then
+            if event ~= "UNIT_SPELLCAST_STOP" then pending = nil end
+            ns.Fire(Stones.casts, "stopped")
         end
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        CheckPreviousTarget()
     elseif event == "BAG_UPDATE_COOLDOWN" then
         RememberSoulstoneLength()
         ns.Fire(Stones.changed)
@@ -270,10 +370,12 @@ end)
 
 table.insert(ns.onLoad, BuildStoneLists)
 table.insert(ns.onSphere, function()
-    for _, event in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_COOLDOWN" }) do
+    for _, event in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_COOLDOWN",
+        "GROUP_ROSTER_UPDATE" }) do
         events:RegisterEvent(event)
     end
-    for _, event in ipairs({ "UNIT_INVENTORY_CHANGED", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED" }) do
+    for _, event in ipairs({ "UNIT_INVENTORY_CHANGED", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
+        "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_FAILED" }) do
         events:RegisterUnitEvent(event, "player")
     end
     Stones.Refresh()

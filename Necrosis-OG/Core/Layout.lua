@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -22,24 +23,24 @@ local _, ns = ...
 local Core = ns.Core
 local isNumber = Core.IsNumber
 
-Core.BUTTON_SLOTS = { "soulstone", "healthstone", "utility", "curses", "demons", "shards", "mount", "spellstone",
-    "firestone" }
+Core.BUTTON_SLOTS = { "soulstone", "healthstone", "utility", "curses", "demons", "shards", "mount", "weaponStone" }
 Core.BUTTON_SIZE = 34
 
 Core.BUTTON_SCALE = 1.11
 Core.BUTTON_SIZE_MIN, Core.BUTTON_SIZE_MAX, Core.BUTTON_SIZE_STEP = 0.5, 2.0, 0.1
 
 Core.BUTTON_RADIUS = 42 * 1.05
-Core.BUTTON_FIRST_ANGLE = 207
-Core.BUTTON_ANGLE_STEP = 360 / #Core.BUTTON_SLOTS -- full circle share by all slot
+Core.BUTTON_FIRST_ANGLE = 225
+
+Core.BUTTON_ANGLE_STEP = 360 / #Core.BUTTON_SLOTS  -- full circle share by all slot
 
 Core.ROTATION_MIN, Core.ROTATION_MAX, Core.ROTATION_STEP = 0, 360, 9
 Core.SPACING_MIN, Core.SPACING_MAX, Core.SPACING_STEP = 0.5, 2.0, 0.01
 Core.DISTANCE_MIN, Core.DISTANCE_MAX, Core.DISTANCE_STEP = 0.8, 2.0, 0.1
 Core.MENU_ITEM_SIZE = 40
-Core.MENU_ITEM_STEP = 32
+Core.MENU_ITEM_STEP = 35
 
-Core.MENU_ICON_INSET = 5
+Core.MENU_ICON_INSET = 7
 
 -- round value to nearest step
 function Core.RoundToStep(value, step)
@@ -221,7 +222,8 @@ function Core.DragSource(place, from, to)
 end
 
 Core.DRAG_EASE = 22
-Core.DRAG_LABEL_SIZE = 12 -- px, name above a drag box
+
+Core.DRAG_LABEL_SIZE = 12  -- px, name above a drag box
 
 function Core.EaseToward(current, goal, dt, speed)
     if not isNumber(current) or not isNumber(goal) then return goal end
@@ -326,16 +328,51 @@ function Core.CooldownLeft(start, duration, now)
     return math.max(0, start + duration - now)
 end
 
+Core.AUTO_HIDE = { delay = 5, fadeOut = 0.25, fadeIn = 0.1 }
+
+Core.FADED_ALPHA_MIN, Core.FADED_ALPHA_MAX, Core.FADED_ALPHA_STEP = 0, 0.9, 0.05
+Core.FADED_ALPHA_MIN_FREE = 0.1
+
+function Core.FadedAlphaMin(free)
+    return free and Core.FADED_ALPHA_MIN_FREE or Core.FADED_ALPHA_MIN
+end
+
+function Core.ClampFadedAlpha(value, free)
+    return Clamp(value, Core.FadedAlphaMin(free), Core.FADED_ALPHA_MAX, Core.FADED_ALPHA_STEP,
+        Core.DEFAULTS.sphere.autoHide.fadedAlpha)
+end
+
+function Core.AutoHideHeld(state)
+    local over
+    if state.free then over = state.over else over = state.ringOver end
+    return (state.demo or state.placing or state.settings or state.menu or (state.combat and state.combatShow)
+        or state.sphereOver or over) and true or false
+end
+
+function Core.AutoHideTarget(state)
+    if not state.on or Core.AutoHideHeld(state) or (state.idle or 0) < Core.AUTO_HIDE.delay then return 1 end
+    return Core.ClampFadedAlpha(state.fadedAlpha, state.free)
+end
+
+function Core.AutoHideStep(alpha, target, floor, dt, speed)
+    if not speed or alpha == target then return target end
+    local rising = target > alpha
+    local step = (1 - floor) * speed * math.max(0, dt) / (rising and Core.AUTO_HIDE.fadeIn or Core.AUTO_HIDE.fadeOut)
+    if rising then return math.min(target, alpha + step) end
+    return math.max(target, alpha - step)
+end
+
 Core.FRAME_LIST = {
     { key = "alertBar", paths = { "procBar.on" }, label = "SET_PROC_BAR" },
     { key = "reminderBar", paths = { "reminderBar.on" }, label = "SET_REMINDER_BAR" },
-    { key = "multi", paths = { "timers.multiOn", "timers.controlOn" }, label = "SET_MULTI_ON" },
+    { key = "barHighlight", paths = { "timers.barHighlight.on", "alerts.glows.on" }, label = "SET_ACTION_BAR_GLOWS" },
+    { key = "multi", paths = { "timers.multiOn", "timers.controlOn" }, label = "SET_DEBUFF_TRACKER" },
+    { key = "missingDebuffs", paths = { "timers.targetReminder.on", "timers.plateReminder.on" }, label = "SET_MISSING_TARGET" },
     { key = "focus", paths = { "timers.focusOn" }, label = "SET_FOCUS_ON" },
-    { key = "missingDebuffs", paths = { "timers.targetReminder.on", "timers.plateReminder.on" }, label = "UNLOCK_MISSING_DEBUFFS" },
-    { key = "barHighlight", paths = { "timers.barHighlight.on" }, label = "SET_BAR_HIGHLIGHT" },
+
 }
 
-Core.LAYOUT_PRESET_ORDER = { "full", "lite", "minimal" }
+Core.LAYOUT_PRESET_ORDER = { "minimal", "lite", "full" }
 Core.LAYOUT_PRESETS = {
     full = {
         label = "UNLOCK_PRESET_FULL",
@@ -348,6 +385,7 @@ Core.LAYOUT_PRESETS = {
     minimal = {
         label = "UNLOCK_PRESET_MINIMAL",
         frames = { alertBar = false, reminderBar = false, multi = false, focus = false, missingDebuffs = false, barHighlight = false },
+        extra = { { path = "sphere.autoHide.on", value = true } },
     },
 }
 
@@ -381,10 +419,14 @@ function Core.ActiveLayoutPreset(saved)
         local preset = Core.LAYOUT_PRESETS[presetKey]
         local matches = true
         for _, entry in ipairs(Core.FRAME_LIST) do
-            if Core.FrameOn(saved, entry) ~= preset.frames[entry.key] then
-                matches = false
-                break
+            local want = preset.frames[entry.key] == true
+            for _, path in ipairs(entry.paths) do
+                if PathOn(saved, path) ~= want then
+                    matches = false
+                    break
+                end
             end
+            if not matches then break end
         end
         if matches then return presetKey end
     end
@@ -401,6 +443,9 @@ function Core.PresetChanges(presetKey)
         for _, path in ipairs(entry.paths) do
             changes[#changes + 1] = { path = path, value = value }
         end
+    end
+    for _, change in ipairs(preset.extra or {}) do
+        changes[#changes + 1] = { path = change.path, value = change.value }
     end
     return changes
 end

@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -17,7 +18,7 @@
 --
 -- SPDX-License-Identifier: GPL-2.0-or-later
 
--- your debuffs on enemies, focus icons and list of all targets
+-- your debuffs on enemies, focus icons and debuff tracker
 local _, ns = ...
 local Core, Text = ns.Core, ns.Text
 
@@ -176,10 +177,10 @@ local function EnemyIconFor(family)
 end
 
 -- look alike of game aura frame for demo
-local function DemoIcon(parent, size, font, square, lead)
+local function DemoIcon(parent, size, font, square, lead, level)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetAllPoints(parent)
-    frame:SetFrameLevel(parent:GetFrameLevel() + 2)
+    frame:SetFrameLevel(parent:GetFrameLevel() + (level or 2))
     frame.icon, frame.cooldown, frame.time = IconFace(frame, size, font, square)
     frame.span = ns.Durations.New()
     frame.binding = ns.Durations.Text(frame.time, "aura", "")
@@ -208,6 +209,7 @@ local function StopDemoIcon(frame)
 end
 
 local FOCUS_STYLE = "icon"
+local FOCUS_AURA_LEVEL = 4
 local ENEMY_STYLE = "icon"
 local INITIALIZE = { focus = { icon = FocusIcon } }
 
@@ -215,6 +217,7 @@ local INITIALIZE = { focus = { icon = FocusIcon } }
 local function NewContainer(parent, unit, key, style, vertical, ids, family)
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, "CustomAuraContainerTemplate")
     if not ok or not container then return nil end
+    if key == "focus" then container:SetFrameLevel(parent:GetFrameLevel() + FOCUS_AURA_LEVEL) end
     local axis = type(AnchorUtil) == "table" and AnchorUtil.FlowLayoutAxis or nil
     Call(container, "SetFlowLayoutAxis", EnumValue(axis, vertical and "Vertical" or "Horizontal", vertical and 1 or 0))
     Call(container, "SetUnit", unit)
@@ -279,7 +282,10 @@ local function ApplyPlace(list)
         return
     end
     local saved = ns.db.timers[list.key]
-    list.frame:SetScale(Scale(list.key))
+    local scale = Scale(list.key)
+    list.frame:SetScale(scale)
+    list.frame.title:SetScale(1 / scale)
+    if list.handle then list.handle.title:SetScale(1 / scale) end
     list.frame:ClearAllPoints()
     list.frame:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y)
 end
@@ -312,9 +318,7 @@ local function CreateList(key, title, width, height, guarded)
     frame.shade = frame:CreateTexture(nil, "BACKGROUND")
     frame.shade:SetAllPoints()
     frame.shade:SetColorTexture(0.45, 0.15, 0.55, 0.35)
-    frame.title = frame:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
-    frame.title:SetPoint("BOTTOM", frame, "TOP", 0, 2)
-    frame.title:SetText(title)
+    frame.title = ns.Media.DragLabel(frame, frame, title)
     list.frame = frame
     lists[key] = list
     ApplyPlace(list)
@@ -388,13 +392,76 @@ local function NewGate(frame, def)
     return gate
 end
 
+local function ClearFocusCooldown(face)
+    face:Hide()
+    face.idle:SetAlpha(1)
+    ns.Durations.HideText(face.binding, face.time)
+end
+
+local function NewFocusCooldown(parent, idle)
+    local face = CreateFrame("Frame", nil, parent)
+    face:SetAllPoints(parent)
+    face:SetFrameLevel(parent:GetFrameLevel() + 1)
+    face.idle = idle
+    face.icon = face:CreateTexture(nil, "ARTWORK")
+    Round(face, face.icon)
+    face.icon:SetAlpha(0.5)
+    face.swipe = ns.Durations.NewSwipe(face, { optional = true, shape = "mask", level = 1,
+        place = function(swipe) Inside(swipe, face) end })
+    face:Hide()
+    if not face.swipe then return nil end
+    face.time = ns.Durations.NewTimeText(face, face.swipe, FOCUS_FONT)
+    face.time:SetAlpha(0.5)
+    face.binding = ns.Durations.Text(face.time, "cooldown", "")
+    face.swipe:SetScript("OnCooldownDone", function() ClearFocusCooldown(face) end)
+    return face
+end
+
+local function DrawFocusCooldown(item, duration)
+    local face = item.cooldown
+    local ok, zero = false, nil
+    if duration then ok, zero = pcall(duration.IsZero, duration) end
+    if not ok or (not IsSecret(zero) and zero == true)
+        or not Call(face.swipe, "SetCooldownFromDurationObject", duration, true) then
+        ClearFocusCooldown(face)
+        return
+    end
+    if IsSecret(zero) then
+        if not Call(face, "SetAlphaFromBoolean", zero, 0, 1)
+            or not Call(face.idle, "SetAlphaFromBoolean", zero, 1, 0) then
+            return ClearFocusCooldown(face)
+        end
+    else
+        face:SetAlpha(1)
+        face.idle:SetAlpha(0)
+    end
+    face.icon:SetTexture(Plain(C_Spell.GetSpellTexture, item.spell))
+    ns.Durations.ShowText(face.binding, duration)
+    face:Show()
+end
+
+local function UpdateFocusCooldown()
+    local item = lists.focus and lists.focus.deathCoil
+    if not item or not item.cooldown or ns.demo then return end
+    local id = item.frame:IsShown() and item.spell
+    local duration = id and Plain(C_Spell.GetSpellCooldownDuration, id, true)
+    DrawFocusCooldown(item, duration)
+end
+
 local function NewFocusIcon(header, def)
     local item = { def = def, containers = {} }
     local frame = CreateFrame("Frame", nil, header)
     frame:SetSize(Core.FOCUS_ICON, Core.FOCUS_ICON)
     item.frame = frame
-    item.icon = frame:CreateTexture(nil, "ARTWORK")
-    item.ring = Round(frame, item.icon)
+    local idle = frame
+    if def.key == "deathCoil" then
+        idle = CreateFrame("Frame", nil, frame)
+        idle:SetAllPoints(frame)
+        idle:SetFrameLevel(frame:GetFrameLevel())
+        item.cooldown = NewFocusCooldown(frame, idle)
+    end
+    item.icon = idle:CreateTexture(nil, "ARTWORK")
+    item.ring = Round(idle, item.icon)
     item.icon:SetAlpha(Core.FOCUS_DIM)
     item.blink = CreateBlink(item.icon)
     item.containers[FOCUS_STYLE] = NewContainer(frame, "focus", "focus", FOCUS_STYLE, true, Core.FocusIconIds(def))
@@ -418,6 +485,7 @@ local function NewFocusIcon(header, def)
     click:SetAttribute("type1", "spell")
     click:SetAttribute("unit1", "focus")
     click:SetScript("PreClick", function() clickedAt[def.key] = Now() end)
+    ns.Sounds.Button(click)
     ns.Tips.Attach(click, IconTooltip(item), "ANCHOR_RIGHT")
     ns.Rings.Attach(click, click, def.spell, { icon = false })
     item.click = click
@@ -490,6 +558,7 @@ local function ArrangeFocus()
         end
     end
     list.header:SetSize(FOCUS_WIDTH, FOCUS_HEIGHT)
+    UpdateFocusCooldown()
 end
 
 local function UpdateFocusFit()
@@ -1305,14 +1374,17 @@ local function CreateFocusList()
     handle:RegisterForDrag("LeftButton")
     handle:SetScript("OnDragStart", list.startDrag)
     handle:SetScript("OnDragStop", list.stopDrag)
-    handle.title = handle:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
-    handle.title:SetPoint("BOTTOM", list.frame, "TOP", 0, 2)
-    handle.title:SetText(Text.TIMER_LIST_FOCUS)
+    handle.title = ns.Media.DragLabel(handle, list.frame, Text.TIMER_LIST_FOCUS)
+    handle.title:SetScale(1 / Scale(list.key))
     handle:Hide()
     list.handle = handle
     list.frame.title:Hide()
     list.items = {}
-    for _, def in ipairs(Core.FOCUS_ICONS) do list.items[#list.items + 1] = NewFocusIcon(header, def) end
+    for _, def in ipairs(Core.FOCUS_ICONS) do
+        local item = NewFocusIcon(header, def)
+        list.items[#list.items + 1] = item
+        if def.key == "deathCoil" then list.deathCoil = item end
+    end
     return list
 end
 
@@ -1412,11 +1484,16 @@ handlers.PLAYER_FOCUS_CHANGED = function()
 end
 
 handlers.PLAYER_TARGET_CHANGED = function() UpdateMulti() end
+handlers.SPELL_UPDATE_COOLDOWN = UpdateFocusCooldown
 
 table.insert(ns.onSpellsChanged, function() if created then Arrange() end end)
 handlers.UNIT_SPELLCAST_SUCCEEDED = function(unit, _, spellID)
     if (unit ~= "player" and unit ~= "pet") or IsSecret(spellID) or type(spellID) ~= "number" then return end
     OnCast(spellID, unit)
+    if unit == "player" and Core.FocusIconOfSpell(spellID) == "deathCoil" then
+        UpdateFocusCooldown()
+        if C_Timer and C_Timer.After then C_Timer.After(0.3, UpdateFocusCooldown) end
+    end
 end
 
 handlers.PLAYER_REGEN_ENABLED = function()
@@ -1484,7 +1561,7 @@ end
 local function CreateDemoParts()
     local focus, multi = lists.focus, lists.multi
     for _, item in ipairs(focus and focus.items or {}) do
-        item.demo = item.demo or DemoIcon(item.frame, Core.FOCUS_ICON, FOCUS_FONT)
+        item.demo = item.demo or DemoIcon(item.frame, Core.FOCUS_ICON, FOCUS_FONT, nil, nil, FOCUS_AURA_LEVEL)
     end
     if not multi or multi.demoLines then return end
     multi.demoLines = {}
@@ -1551,6 +1628,13 @@ local function StartDemoData()
                 if not item.spell then return end
                 item.casted = true
                 ApplyFocusFlash(item)
+                if item.cooldown then
+                    local span = ns.Durations.New()
+                    local cooldown = Core.DEMO.deathCoilCooldown
+                    ns.Durations.Set(span, now, cooldown)
+                    DrawFocusCooldown(item, span)
+                    ns.DemoAt(now + cooldown, function() ClearFocusCooldown(item.cooldown) end)
+                end
                 DemoDebuff(item.demo, item.spell, length, now, DemoGates)
             end)
         end
@@ -1589,6 +1673,7 @@ local function StopDemoData()
     local focus, multi = lists.focus, lists.multi
     for _, item in ipairs(focus and focus.items or {}) do
         StopDemoIcon(item.demo)
+        if item.cooldown then ClearFocusCooldown(item.cooldown) end
         item.casted = false
         ApplyFocusFlash(item)
     end
@@ -1602,7 +1687,11 @@ end
 
 table.insert(ns.onDemo, function(on)
     if not created then return end
-    if on then CreateDemoParts() end
+    if on then
+        CreateDemoParts()
+        local coil = lists.focus.deathCoil
+        if coil.cooldown then ClearFocusCooldown(coil.cooldown) end
+    end
     Arrange()
 end)
 

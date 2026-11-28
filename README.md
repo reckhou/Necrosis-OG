@@ -1,54 +1,58 @@
 # Necrosis OG
 
-**One classic sphere. The essential Warlock tool.**
+**One classic sphere. Rebuilt from scratch for World of Warcraft: Forever.**
 
-Every veteran Warlock remembers it: One Soul Shard Sphere, ringed by buttons for your stones, demons, curses and mount. Necrosis OG brings it back, remade from the vanilla **Necrosis LdC**.
+Old-school **Necrosis** soul, brand-new HD polish. Install it, pick a preset, and start casting — no two-hour config seminar required.
 
-**The same sphere, rebuilt for today.** It is made for World of Warcraft: Forever and nothing else, and every detail is polished. No more awkward UI deadlocks in the middle of combat. It feels just like you remember, with tons of quality-of-life features on top.
+- **Set up in a minute:** Pick the **Minimal**, **Lite**, or **Full** preset, hit **Start Demo** to see it in action, move the sphere where you like, and click **Lock**. No extra configuration required — only the essential options are kept if you want a bit more customisation.
+- **10 Languages:** English, Deutsch, Français, Español (España), Español (Latinoamérica), Português (Brasil), Русский, 한국어, 简体中文, 繁體中文.
 
-**Supported languages** — English, Deutsch, Français, Español (España), Español (Latinoamérica), Português (Brasil), Русский, 한국어, 简体中文, 繁體中文.
+---
 
-## Features
+## Why Necrosis OG?
 
-**Quick Start:** Right-click the sphere and click **Start Demo**.
+- **Looks Classic, Moves Like Magic:** All 8 iconic sphere skins and button rings remastered in crisp HD, with tons of visual polish under the hood.
+- **Ready Out of the Box (Not 10,000 Checkboxes):** Starts clean and ready for play on **Lite**, with **3 one-click presets** (`Full`, `Lite`, `Minimal`) and a streamlined settings window — spend your evening on your adventure, not hunting through nested option trees.
+- **Built Exclusively for WoW: Forever:** Zero bundled libraries, zero companion add-ons, and every feature is remade for the latest game.
 
-- **Customisable Chat Lines:** Up to 100 presets for each of your own summon lines and Warlock spells. Live your OG Warlock life in style.
-- **Smart Reminders:** Know when you are missing an essential buff or a Healthstone, when a Soulstone is ready, or when your minion is MIA.
-- **Demons, Curses and Utility Menus:** Every spell you know, one click away. No need to clutter your action bars.
-- **Smart Rotation:** Missing DoT is highlited on action bar. Smart Wrack calculates the timing of DoT refreshing. (Supports standard action bar and Bartender 4)
-- **Enemy Tracker:** Track your DoTs and curses on every enemy, with their health and your threat.
-- **Missing Debuff Tracking:** See which of your DoTs and curses are missing, on your target or nameplates, and the next one to cast glows on your action bars.
-- **Proc Alerts:** Alerts for Nightfall, Decimation, Amplify Curse and Fear immunity.
-- **Control on Focus:** Cast Banish, Fear, Seduction, curses and Death Coil on your focus without a target swap.
-- **Control Warnings:** Know when Banish or Fear is about to break, and when your enslaved demon breaks free.
-- **Full Combat Support:** Every button, menu and key binding works smoothly mid-fight. No more awkward glitches or deadlocks.
-- **Key Bindings and Focus Macros:** Use spells and stones with any key you like.
-- **Soul Shard Sphere:** See your shard count and threat at a glance. Extra shards are removed for you automatically.
-- **Stone Buttons:** Create and use Healthstones, Soulstones, Firestones and Spellstones, with their cooldowns tracked.
-- **Easy Healthstone Trading:** Trade a stone in one click or from the trade menu.
-- **Mount Button:** Summon your beloved steed or use your Hearthstone.
+---
+
+## What You Get
+
+### The Sphere, Stones & Menus
+- **Smart Shard Sphere:** Live shard count scaled to your soul bag, gliding threat ring with aggro flash, and automatic excess-shard cleanup.
+- **Combat-Safe Radial Menus:** Demons, Curses, and Utility spells one click away, with cooldown and buff swipes. Auto-hide to keep a minimalist look.
+- **Stones, Mount & 1-Click Trade:** Shared Firestone/Spellstone button, 1-click Healthstone trading, and random favourite mount or Hearthstone on one button.
+
+### Warlock Utilities
+- **Smart Reminders & Safety:** Animated Reminder Bar (auto-hidden based on context), **Demonic Sacrifice Guard** before overwriting your buff, low-health glows for **Voidwalker Sacrifice** and **Health Funnel**, and up to 100 customisable speech presets per spell.
+- **Summon Queue:** Catches requests from party, raid, or whispers, tracks incoming summons, and lets you summon in one click. Keeps an **Away** list if you need to summon the whole raid group.
+- **Soulstone Shortcut:** Right-click the Soulstone button in a group to pick healers or tanks fast, with a gentle warning if you target someone unexpected.
+
+### Combat Intelligence
+- **Smart Rotation & Action-Bar Glows:** Highlights your next missing DoT spell or curse, times **Wrack** and **Shadow Trance** refreshes, tracks **Demonic Brand**, and skips immune **Siphon Life** targets. Works with mainstream action bars such as **Blizzard, Bartender4, Dominos, ElvUI, and EllesmereUI**.
+- **Debuff Trackers:** Portraits, coloured health bars, live threat, plus optional target and nameplate strips for missing DoTs.
+- **Control on Focus & Procs:** One-click **Banish, Seduction, Fear, curses, and Death Coil** on Focus without swapping targets, break warnings, and classic voice alerts for **Nightfall, Decimation, Amplify Curse, and Fear Immunity**.
+
+---
 
 ## Install
 
-1. Download the latest zip from CurseForge or from Releases on this page.
-2. Unzip it into `World of Warcraft\_forever_\Interface\AddOns`. You should get a folder named `Necrosis-OG`.
+1. Install via the **CurseForge** app, or download the latest zip from Releases.
+2. If installing manually, unzip into `World of Warcraft\_forever_\Interface\AddOns` so you have `AddOns\Necrosis-OG`.
 3. Restart the game.
 
-## Getting started
+## Getting Started
 
-- Right-click the sphere to open settings.
-- Click **Unlock** to move things, then **Lock** when you finish.
-- Click **Start Demo** on the General tab to see the add-on in action.
-- Set keys under **Key Bindings > AddOns > Necrosis OG**.
-
-## Bugs and ideas
-
-Open an issue on this page. Include your game build and what you saw.
+- **Right-click the sphere** (or type `/nog`) to open Settings, or click **?** to reopen the Welcome Guide.
+- Click **Unlock** to drag frames and switch between **Full**, **Lite**, and **Minimal**; click **Lock** when done.
+- Click **Start Demo** to preview every bar, timer, orb, and glow out of combat.
+- Set keys under **Options > Key Bindings > AddOns > Necrosis OG**, or type `/nog summon` for the Summon Queue.
 
 ## Credits
 
-- Remade from **Necrosis LdC 1.5.2a**. Original idea by Infernal, maintained by Lomig and Nyx, with sphere skins by Eliah. Thanks to Sadyre. The 1.5.2a update was by Liadora.
-- The high-resolution artwork for seven sphere skins and most button and menu icons matches [Necrosis Classic 7.5](https://www.curseforge.com/wow/addons/necrosis-classic/files/3157067). Thanks to urnati for the [128 × 128 artwork update in 7.2](https://www.curseforge.com/wow/addons/necrosis-classic/files/2968236).
+- Remade from **Necrosis LdC**. Original idea by Infernal, maintained by Lomig and Nyx, with sphere skins by Eliah. Thanks to Sadyre. The 1.5.2a update was by Liadora.
+- The high-resolution artwork for seven sphere skins is from [Necrosis Classic](https://www.curseforge.com/wow/addons/necrosis-classic/files/3157067). Thanks to kricklen, and to urnati for the artwork update in 7.2.
 - Spell and item icons are Blizzard Entertainment's.
 
 ## Licence

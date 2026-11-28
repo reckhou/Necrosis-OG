@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -38,9 +39,19 @@ local MENU_BODY = [[
     end
     return false
 ]]
+
+local GUARD_SUMMON = [[
+    if self:GetAttribute("holdSummon") then
+        self:SetAttribute("holdSummon", nil)
+        return false
+    end
+]]
 local TOGGLE_MENU = [[ if button ~= "LeftButton" then return end ]] .. MENU_BODY
 
-local REMINDER_CLICK = [[ if button ~= "LeftButton" then return nil, true end ]] .. MENU_BODY
+local REMINDER_CLICK = [[
+    if button == "RightButton" and IsControlKeyDown() and not IsShiftKeyDown() and not IsAltKeyDown() then return end
+    if button ~= "LeftButton" then return nil, true end
+]] .. MENU_BODY
 
 local BEFORE_SPELL = [[ return nil, true ]]
 
@@ -99,13 +110,28 @@ end
 
 local menus = {}
 
+local function OpensQueue(key)
+    return key == "ritualOfSummoning" and ns.SummonQueue ~= nil and ns.SummonQueue.Takes()
+end
+
+local function QueueClick(key, mouse)
+    if mouse == "RightButton" and OpensQueue(key) and not IsModifierKeyDown() then ns.SummonQueue.Toggle() end
+end
+
 local function ItemTooltip(item)
     return function(tooltip)
         Buttons.SpellTooltip(tooltip, item.spellID, Core.SPELLS[item.entry.keys[1]][1])
+        if item.spellID and OpensQueue(item.entry.keys[1]) then
+            ns.Tips.Click(tooltip, "right", Text.ACT_SUMMON_QUEUE)
+        end
         if item.entry.demon and item.spellID then
             if Core.HighestKnown(Core.SPELLS.felDomination, Buttons.IsKnown) then
                 ns.Tips.Click(tooltip, "right", Text.ACT_FAST_SUMMON)
             end
+        end
+        if item.entry.demon and item.spellID then
+            local buff, risky = ns.Controls.SacrificeInfo(item.entry.keys[1])
+            if risky and buff then ns.Tips.Note(tooltip, string.format(Text.TIP_SACRIFICE_RISK, buff)) end
         end
         local amplify = item.spellID and Amplify(item.entry)
         if amplify then
@@ -204,6 +230,30 @@ end
 local shaded = {}
 
 local cooldownLengths = {}
+local armourKeys = Core.CONTROL_BUTTONS.armour.spells
+
+local BUFFS = {
+    [armourKeys[1]] = armourKeys,
+    unendingBreath = { "unendingBreath" },
+    detectInvisibility = { "detectInvisibility" },
+}
+
+local function BuffDuration(keys)
+    local auras = C_UnitAuras
+    if not auras then return end
+    for _, key in ipairs(keys) do
+        for _, id in ipairs(Core.SPELLS[key]) do
+            local aura = Plain(auras.GetPlayerAuraBySpellID, id)
+            if aura then
+                local instance, length = aura.auraInstanceID, aura.duration
+                if not IsSecret(instance) and instance then
+                    local duration = Plain(auras.GetAuraDuration, "player", instance)
+                    if duration then return duration, not IsSecret(length) and length or nil end
+                end
+            end
+        end
+    end
+end
 
 local function NoteLength(id)
     local ok, info = pcall(C_Spell.GetSpellCooldown, id)
@@ -241,32 +291,37 @@ local function ClearCooldown(cd)
     ns.Durations.HideText(cd.binding, cd.text)
 end
 
--- draw cooldown of spell id on cd
-local function DrawCooldown(cd, id)
+-- draw cooldown of spell id, or time left of your buff
+local function DrawCooldown(cd, id, buff)
     if not cd then return end
-    if ns.demo then id = nil end
-    local duration
-    if id and C_Spell.GetSpellCooldownDuration then
-        local ok, value = pcall(C_Spell.GetSpellCooldownDuration, id, true)
-        if ok then duration = value end
+    if ns.demo or not id then return ClearCooldown(cd) end
+    local duration, length
+    if buff then
+        duration, length = BuffDuration(buff)
+    else
+        duration = Plain(C_Spell.GetSpellCooldownDuration, id, true)
+        if duration and not InCombat() then NoteLength(id) end
+        length = cooldownLengths[id]
     end
     if not duration then return ClearCooldown(cd) end
-    if not InCombat() then NoteLength(id) end
     local okZero, zero = pcall(duration.IsZero, duration)
     if not okZero then return ClearCooldown(cd) end
     local hidden = IsSecret(zero)
     if not hidden and zero == true then return ClearCooldown(cd) end
+    pcall(cd.swipe.SetReverse, cd.swipe, buff ~= nil)
     pcall(cd.swipe.SetCooldownFromDurationObject, cd.swipe, duration, true)
-    if not hidden then
+    if buff then
+        cd.dim:SetAlpha(0)
+    elseif not hidden then
         cd.dim:SetAlpha(1 - Core.COOLDOWN_DIM)
     elseif not pcall(cd.dim.SetAlphaFromBoolean, cd.dim, zero, 0, 1 - Core.COOLDOWN_DIM) then
         cd.dim:SetAlpha(0)
     end
-    ns.Durations.ColourByLength(cd, cooldownLengths[id])
+    ns.Durations.ColourByLength(cd, length)
     ns.Durations.ShowText(cd.binding, duration)
 end
 
-local function UpdateCooldown(item) DrawCooldown(item.cd, item.spellID) end
+local function UpdateCooldown(item) DrawCooldown(item.cd, item.spellID, BUFFS[item.entry.keys[1]]) end
 
 local function CreateItem(menu, header, entry, menuKey, after)
     local item = Buttons.NewSecureButton(nil, menu, Core.MENU_ITEM_SIZE)
@@ -280,6 +335,9 @@ local function CreateItem(menu, header, entry, menuKey, after)
     end
     ns.Rings.Attach(face, item, entry.gameIcon and entry.keys[1] or entry.art)
     item.cd = NewCooldown(face, Core.MENU_ITEM_SIZE)
+    if ns.RangeCover then
+        ns.RangeCover.AddSpell(face, Core.MENU_ITEM_SIZE, item, function() return item.spellID, entry.keys[1] end)
+    end
     item:HookScript("OnShow", function()
         Shade(item)
         UpdateCooldown(item)
@@ -290,13 +348,23 @@ local function CreateItem(menu, header, entry, menuKey, after)
     item.tooltip = ItemTooltip(item)
     local key = entry.keys[1]
     if entry.demon or key == "ritualOfSummoning" then
-        item.speechSubject = function()
-            if not item.spellID then return nil end
+        item.speechSubject = function(mouse)
+            if not item.spellID or (mouse == "RightButton" and OpensQueue(key)) then return nil end
             return key, key == "ritualOfSummoning" and "target" or nil
         end
     end
+    if key == "ritualOfSummoning" then
+        item.onPostClick = function(_, mouse) QueueClick(key, mouse) end
+        if ns.SummonQueue then ns.SummonQueue.AddCue(face) end
+    end
     SecureHandlerSetFrameRef(item, "menu", menu)
-    header:WrapScript(item, "OnClick", BEFORE_SPELL, after or AFTER_SPELL)
+    local guarded = entry.demon or key == "demonicSacrifice"
+    if guarded then
+        item.summonKey = function(mouse)
+            if item.spellID and (mouse == "LeftButton" or mouse == "RightButton") then return key end
+        end
+    end
+    header:WrapScript(item, "OnClick", guarded and GUARD_SUMMON .. BEFORE_SPELL or BEFORE_SPELL, after or AFTER_SPELL)
     item:Hide()
     return item
 end
@@ -305,7 +373,7 @@ end
 local function RefreshItem(item)
     local id = Core.PickSpell(item.entry.keys, Buttons.IsKnown)
     item.spellID = id
-    local actions = Buttons.CastActions(item.entry.keys[1], id)
+    local actions = Buttons.CastActions(id)
     -- right click cast the same as left click, some spell have own right click
     actions.type2, actions.spell2, actions.macrotext2 = actions.type1, actions.spell1, actions.macrotext1
     local amplify = id and Amplify(item.entry)
@@ -320,6 +388,7 @@ local function RefreshItem(item)
         Buttons.SummonActions(item, actions, full, full and Core.DemonSummonMacro(dominationName, demonName, false, true))
     end
     if actions.type2 == "macro" then actions.spell2 = false end
+    if OpensQueue(item.entry.keys[1]) then actions.type2, actions.spell2, actions.macrotext2 = false, false, false end
     Buttons.SetActions(item, actions)
     if item.entry.gameIcon then
         item.icon:SetTexture(Plain(C_Spell.GetSpellTexture, id or Core.SPELLS[item.entry.keys[1]][1]))
@@ -342,6 +411,8 @@ local function MenuTooltip(key)
             Tips.Click(tooltip, "left", Text.ACT_OPEN_MENU)
             local last = LastDemon()
             if last then Tips.Click(tooltip, "right", SpellName(last) or "?") end
+            local buff, risky = ns.Controls.SacrificeInfo(last and ns.db.buttons.lastDemon)
+            if buff then Tips.Note(tooltip, string.format(risky and Text.TIP_SACRIFICE_RISK or Text.TIP_SACRIFICE_ACTIVE, buff)) end
         elseif key == "curses" then
             Tips.Title(tooltip, Text.TIP_CURSES_TITLE)
             Tips.Click(tooltip, "left", Text.ACT_OPEN_MENU)
@@ -350,8 +421,12 @@ local function MenuTooltip(key)
         else
             Tips.Title(tooltip, Text.TIP_UTILITY_TITLE)
             Tips.Click(tooltip, "left", Text.ACT_OPEN_MENU)
-            local _, id = LastUtility()
-            if id then Tips.Click(tooltip, "right", SpellName(id) or "?") end
+            local entry, id = LastUtility()
+            if id and OpensQueue(entry.keys[1]) then
+                Tips.Click(tooltip, "right", Text.ACT_SUMMON_QUEUE)
+            elseif id then
+                Tips.Click(tooltip, "right", SpellName(id) or "?")
+            end
         end
     end
 end
@@ -393,14 +468,14 @@ local function WearPicture(key)
             button.icon:SetTexture(icon)
             button.icon:SetTexCoord(0, 1, 0, 1)
             ns.Rings.SetKey(button, entry.keys[1])
-            return known
+            return known, BUFFS[entry.keys[1]]
         end
     elseif entry then
         ShowRing(button, false)
         button.icon:SetTexture(Core.UiTexture(entry.art .. "-01"))
         button.icon:SetTexCoord(0, 1, 0, 1)
         ns.Rings.SetKey(button, entry.art)
-        return known
+        return known, BUFFS[entry.keys[1]]
     end
     local kind, value = GameIcon(MENUS[key])
     if not kind then return end
@@ -416,8 +491,11 @@ end
 
 local function WearGameIcon(key)
     local button = menus[key].button
-    button.cdSpell = WearPicture(key)
-    DrawCooldown(button.cd, button.cdSpell)
+    local entry = LastEntry(key)
+    button.picturedKey = entry and entry.keys[1]
+    button.cdSpell, button.cdBuff = WearPicture(key)
+    DrawCooldown(button.cd, button.cdSpell, button.cdBuff)
+    if ns.SummonQueue then ns.SummonQueue.RefreshCues() end
 end
 
 local function CreateMenu(key, sphere, header)
@@ -428,10 +506,16 @@ local function CreateMenu(key, sphere, header)
     ns.Rings.Attach(button, button, def.art)
     button.cd = NewCooldown(button, Core.BUTTON_SIZE)
     button.tooltip = MenuTooltip(key)
+    if key == "curses" and ns.RangeCover then
+        ns.RangeCover.AddSpell(button, Core.BUTTON_SIZE, button, function()
+            if button.cdSpell then return button.cdSpell, ns.db.buttons.lastCurse end
+        end)
+    end
     if key == "demons" then
-        button.speechSubject = function(mouse)
-            if mouse == "RightButton" and LastDemon() then return ns.db.buttons.lastDemon, nil end
+        button.summonKey = function(mouse)
+            if mouse == "RightButton" and LastDemon() then return ns.db.buttons.lastDemon end
         end
+        button.speechSubject = button.summonKey
     end
 
     local menu = CreateFrame("Frame", def.menuName, button, "SecureHandlerBaseTemplate")
@@ -439,13 +523,25 @@ local function CreateMenu(key, sphere, header)
     menu:SetPoint("CENTER", button, "CENTER", 0, 0)
     menu:Hide()
     menu.faceOwner = button
+    ns.Sounds.Menu(menu)
+    if ns.AutoHide then ns.AutoHide.AddMenu(menu) end
     SecureHandlerSetFrameRef(button, "menu", menu)
-    header:WrapScript(button, "OnClick", TOGGLE_MENU)
+    header:WrapScript(button, "OnClick", key == "demons" and GUARD_SUMMON .. TOGGLE_MENU or TOGGLE_MENU)
 
     local items = {}
     for i, entry in ipairs(def.list) do items[i] = CreateItem(menu, header, entry, key) end
     menus[key] = { button = button, menu = menu, items = items }
     Buttons.AddSlot(key, button)
+    if key == "utility" then
+        local function LastKey()
+            local entry = LastUtility()
+            return entry and entry.keys[1]
+        end
+        button.onPostClick = function(_, mouse) QueueClick(LastKey(), mouse) end
+        if ns.SummonQueue then
+            ns.SummonQueue.AddCue(button, function() return OpensQueue(button.picturedKey) end)
+        end
+    end
 end
 
 local function OrderedItems(key)
@@ -478,7 +574,8 @@ local function RefreshMenu(key)
     state.button.wanted = shown > 0
     if key == "utility" then
         local entry, id = LastUtility()
-        local cast = Buttons.CastActions(entry and entry.keys[1], id)
+        if entry and OpensQueue(entry.keys[1]) then id = nil end
+        local cast = Buttons.CastActions(id)
         Buttons.SetActions(state.button, { type2 = cast.type1, spell2 = cast.spell1, macrotext2 = cast.macrotext1 })
     end
     if key == "demons" or key == "curses" then
@@ -505,7 +602,9 @@ end)
 local PICK_AFTER = [[
     local owner = self:GetFrameRef("owner")
     local macro = self:GetAttribute("againmacro")
-    if macro then
+    local avoid = owner:GetAttribute("avoidDemon")
+    local key = self:GetAttribute("demonKey")
+    if macro and avoid ~= "unknown" and key ~= avoid and not (key == "incubus" and avoid == "succubus") then
         owner:SetAttribute("type2", "macro")
         owner:SetAttribute("summonfull", macro)
         owner:SetAttribute("summonkeep", self:GetAttribute("againkeep"))
@@ -530,9 +629,11 @@ function Menus.AttachDemonPicker(owner, header)
     menu:SetScale(Core.BUTTON_SCALE / Core.CONTROL_ICON_SCALE)
     menu:SetFrameStrata("HIGH")
     menu:Hide()
+    ns.Sounds.Menu(menu)
+    if ns.AutoHide then ns.AutoHide.AddMenu(menu) end
     menu.faceOwner, menu.faceScale, menu.faceStrata = owner, Core.BUTTON_SCALE / Core.CONTROL_ICON_SCALE, "HIGH"
     SecureHandlerSetFrameRef(owner, "menu", menu)
-    header:WrapScript(owner, "OnClick", REMINDER_CLICK, Core.KEEP_SUMMON)
+    header:WrapScript(owner, "OnClick", GUARD_SUMMON .. REMINDER_CLICK, Core.KEEP_SUMMON)
     local items = {}
     for _, entry in ipairs(Core.DEMON_MENU) do
         if entry.demon then
@@ -560,7 +661,8 @@ local function RefreshPicker()
             local demonName = item.spellID and SpellName(item.spellID)
             item:SetAttribute("againmacro", demonName and Core.DemonAgainMacro(dominationName, demonName) or nil)
             item:SetAttribute("againkeep", demonName and Core.DemonAgainMacro(dominationName, demonName, true) or nil)
-            item:SetAttribute("againart", item.entry.art)
+            item:SetAttribute("againart", item.entry.keys[1])
+            item:SetAttribute("demonKey", item.entry.keys[1])
             item:Show()
         else
             item:Hide()
@@ -622,11 +724,19 @@ local function UpdateAllCooldowns()
     end
     for _, key in ipairs(MENU_KEYS) do
         local button = menus[key] and menus[key].button
-        if button then DrawCooldown(button.cd, button.cdSpell) end
+        if button then DrawCooldown(button.cd, button.cdSpell, button.cdBuff) end
     end
 end
 
 cooldownEvents:SetScript("OnEvent", function(_, event)
+    if event == "UNIT_AURA" then
+        for _, item in ipairs(shaded) do
+            if BUFFS[item.entry.keys[1]] and item:IsVisible() then UpdateCooldown(item) end
+        end
+        local button = menus.utility and menus.utility.button
+        if button and button.cdBuff then DrawCooldown(button.cd, button.cdSpell, button.cdBuff) end
+        return
+    end
     UpdateAllCooldowns()
     if event == "UNIT_SPELLCAST_SUCCEEDED" and C_Timer and C_Timer.After then C_Timer.After(0.3, UpdateAllCooldowns) end
 end)
@@ -634,6 +744,7 @@ end)
 table.insert(ns.onSphere, function()
     cooldownEvents:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     cooldownEvents:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    cooldownEvents:RegisterUnitEvent("UNIT_AURA", "player")
 end)
 
 Menus.State = function(key) return menus[key] end

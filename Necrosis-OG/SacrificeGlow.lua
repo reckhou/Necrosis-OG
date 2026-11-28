@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -29,11 +30,15 @@ local UNITS = { "player", "pet" }
 
 local glows = {}
 local shown = {}
-local curve, curveFor
+local curves = {}
+local FUNNEL_RANKS = Core.ToSet(Core.SPELLS.healthFunnel)
 local scanPending = false
 local demoLit = false
+local previewKeys = {}
 
-local function SwitchedOn() return ns.db.alerts.sacrificeOn ~= false and ns.db.procBar.on ~= false end
+local function SwitchedOn(key)
+    return ns.db.alerts.glows.on ~= false and ns.db.alerts[key .. "On"] ~= false
+end
 
 local function SacrificeName() return Game.SpellName(Core.SPELLS.sacrifice[1]) end
 
@@ -51,25 +56,27 @@ local function ActionText(slot)
     return type(reader) == "function" and Plain(reader, slot) or nil
 end
 
-local function SlotIsSacrifice(slot)
+local function SlotSpell(slot)
     if type(slot) ~= "number" or IsSecret(slot) then return false end
     local ok, kind, id, sub = pcall(GetActionInfo, slot)
     if not ok or IsSecret(kind) or IsSecret(id) or IsSecret(sub) then return false end
     if kind == "spell" or (kind == "macro" and sub == "spell") then
-        if IsSacrifice(id) then return true end
+        if FUNNEL_RANKS[id] then return "healthFunnel" end
+        if IsSacrifice(id) then return "sacrifice" end
     end
-    return kind == "macro" and ActionText(slot) == Core.PET_MACROS.sacrifice
+    if kind == "macro" and ActionText(slot) == Core.PET_MACROS.sacrifice then return "sacrifice" end
 end
 
--- all button on bars that cast sacrifice
-local function SacrificeButtons()
+-- all button on bars which cast sacrifice or health funnel
+local function HealthButtons()
     local found = {}
     for _, button in ipairs(ns.ActionButtons.Bar()) do
-        if SlotIsSacrifice(ns.ActionButtons.Slot(button)) then found[#found + 1] = button end
+        local key = SlotSpell(ns.ActionButtons.Slot(button))
+        if key then found[button] = key end
     end
     for _, pet in ipairs(ns.ActionButtons.Pet()) do
         local ok, spellID = pcall(function() return select(7, GetPetActionInfo(pet.index)) end)
-        if ok and IsSacrifice(spellID) then found[#found + 1] = pet.button end
+        if ok and IsSacrifice(spellID) then found[pet.button] = "sacrifice" end
     end
     return found
 end
@@ -95,54 +102,50 @@ local function Play(alert)
 end
 
 -- step curve, 1 under the health limit and 0 above
-local function Curve()
-    local at = Core.SacrificeThresholdOrDefault(ns.db.alerts.sacrificeAt)
-    if curveFor ~= at then
+local function Curve(key)
+    local setting = key .. "At"
+    local at = Core.SacrificeThresholdOrDefault(ns.db.alerts[setting], Core.DEFAULTS.alerts[setting])
+    if curves[at] == nil then
         local ok, made = pcall(function()
             local new = C_CurveUtil.CreateCurve()
             new:SetType(Enum.LuaCurveType.Step)
             for _, point in ipairs(Core.SacrificeCurvePoints(at)) do new:AddPoint(point[1], point[2]) end
             return new
         end)
-        curve, curveFor = ok and made or nil, at
+        curves[at] = ok and made or false
     end
-    return curve
+    return curves[at]
 end
 
 local function WriteAlpha(alert, unit, made)
     alert:SetAlpha(UnitHealthPercent(unit, true, made))
 end
 
-local function SetFromHealth(alert, unit)
-    local made = Curve()
+local function SetFromHealth(alert, unit, made)
     if not (made and pcall(WriteAlpha, alert, unit, made)) then alert:SetAlpha(0) end
-end
-
-local function DemonReady()
-    if Plain(UnitExists, "pet") ~= true or Plain(UnitIsDead, "pet") == true then return false end
-    return Core.HighestKnown(Core.SPELLS.sacrifice, ns.PetKnows) ~= nil
-end
-
-local function UnitWanted(unit, ready)
-    if unit == "pet" then return ready end
-    return ready and Plain(UnitIsDeadOrGhost, "player") ~= true
 end
 
 -- glow show only when voidwalker is out and health is low
 local function Refresh()
-    local on = SwitchedOn()
     local demo = ns.demoData == true
-    local ready = on and not demo and DemonReady()
+    local pet = not demo and Plain(UnitExists, "pet") == true and Plain(UnitIsDead, "pet") == false
+    local alive = Plain(UnitIsDeadOrGhost, "player") == false
+    local sacrifice = pet and Core.HighestKnown(Core.SPELLS.sacrifice, ns.PetKnows)
+    local funnel = pet and alive and Core.HighestKnown(Core.SPELLS.healthFunnel, ns.Buttons.IsKnown)
     for _, glow in ipairs(shown) do
+        local on = SwitchedOn(glow.key)
+        local healing = glow.key == "healthFunnel"
+        glow.curve = on and Curve(glow.key)
         for _, unit in ipairs(UNITS) do
             local alert = glow[unit]
-            if demo then
-                local lit = on and unit == "player" and demoLit
+            local wanted = (healing and funnel and unit == "pet") or (not healing and sacrifice and (unit == "pet" or alive))
+            if demo or previewKeys[glow.key] then
+                local lit = on and (not demo or demoLit) and unit == (healing and "pet" or "player")
                 alert:SetAlpha(lit and 1 or 0)
                 alert:SetShown(lit)
                 if lit then Play(alert) end
-            elseif UnitWanted(unit, ready) then
-                SetFromHealth(alert, unit)
+            elseif on and wanted then
+                SetFromHealth(alert, unit, glow.curve)
                 alert:Show()
                 Play(alert)
             else
@@ -154,17 +157,19 @@ local function Refresh()
 end
 
 local function OnHealth(unit)
-    if ns.demoData or not SwitchedOn() then return end
+    if ns.demoData or ns.db.alerts.glows.on == false then return end
     for _, glow in ipairs(shown) do
-        local alert = glow[unit]
-        if alert and alert:IsShown() then SetFromHealth(alert, unit) end
+        if not previewKeys[glow.key] then
+            local alert = glow[unit]
+            if alert and alert:IsShown() then SetFromHealth(alert, unit, glow.curve) end
+        end
     end
 end
 
 local function Scan()
     scanPending = false
     local wanted = {}
-    for _, button in ipairs(SacrificeButtons()) do
+    for button, key in pairs(HealthButtons()) do
         local id = button:GetName() or tostring(button)
         local glow = glows[id]
         if not glow then
@@ -174,7 +179,10 @@ local function Scan()
                 glows[id] = glow
             end
         end
-        if glow then wanted[glow] = true end
+        if glow then
+            glow.key = key
+            wanted[glow] = true
+        end
     end
     for _, glow in ipairs(shown) do
         if not wanted[glow] then
@@ -196,9 +204,15 @@ end
 function SacrificeGlow.Shown() return shown end
 function SacrificeGlow.DemoLit() return demoLit end
 
+function SacrificeGlow.SetPreview(keys)
+    previewKeys = keys or {}
+    Refresh()
+end
+
 local function OnDemoData(on)
     demoLit = false
     if on then
+        previewKeys = {}
         ns.DemoEvery(Core.DEMO.sacrificeStep, function()
             demoLit = not demoLit
             Refresh()

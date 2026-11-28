@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -29,28 +30,55 @@ local button
 
 local IsSecret, Plain, InCombat = ns.Game.IsSecret, ns.Game.Plain, ns.Game.InCombat
 
-local function Limit() return Core.ClampShardLimit(ns.db.buttons.shardLimit) end
+local lastBag = type(NUM_BAG_SLOTS) == "number" and NUM_BAG_SLOTS or 4
+
+local function BagInfo(bag, shardFamily)
+    local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
+    local soul = ok and not IsSecret(family) and Core.IsSoulBag(family, shardFamily)
+    local slots = Plain(C_Container.GetContainerNumSlots, bag)
+    return soul, Core.IsNumber(slots) and slots or 0
+end
+
+local function SoulBagCapacity()
+    local shardFamily = Plain(C_Item.GetItemFamily, Core.SOUL_SHARD_ITEM)
+    local capacity = 0
+    for bag = 1, lastBag do
+        local soul, slots = BagInfo(bag, shardFamily)
+        if soul then capacity = capacity + slots end
+    end
+    return capacity
+end
+
+local function Limit(capacity)
+    return Core.ShardLimit(ns.db.buttons.shardLimit, capacity or SoulBagCapacity())
+end
+
+function Shards.Limit() return (Limit()) end
+
+function Shards.LimitBounds()
+    local _, low, high = Limit()
+    return low, high
+end
 
 local function Count()
     local count = Plain(C_Item.GetItemCount, Core.SOUL_SHARD_ITEM)
     return type(count) == "number" and count or 0
 end
 
-function Shards.ShownLimit()
-    if button and Buttons.SlotShown("shards") then return Limit() end
+function Shards.ShownLimit(limit)
+    if button and Buttons.SlotShown("shards") then return limit or Shards.Limit() end
     return nil
 end
 
 -- bags with soul bag flag, shards and free slots
 local function ReadBags()
     local shardFamily = Plain(C_Item.GetItemFamily, Core.SOUL_SHARD_ITEM)
-    local bags = {}
-    local lastBag = type(NUM_BAG_SLOTS) == "number" and NUM_BAG_SLOTS or 4
+    local bags, capacity = {}, 0
     for bag = 0, lastBag do
-        local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
-        local entry = { bag = bag, soul = ok and Core.IsSoulBag(family, shardFamily), shards = {}, free = {} }
-        local slots = Plain(C_Container.GetContainerNumSlots, bag)
-        if type(slots) == "number" then
+        local soul, slots = BagInfo(bag, shardFamily)
+        local entry = { bag = bag, soul = soul, shards = {}, free = {} }
+        if soul and bag > 0 then capacity = capacity + slots end
+        if slots > 0 then
             for slot = 1, slots do
                 local ok2, id = pcall(C_Container.GetContainerItemID, bag, slot)
                 if ok2 and not IsSecret(id) then
@@ -64,7 +92,7 @@ local function ReadBags()
         end
         bags[#bags + 1] = entry
     end
-    return bags
+    return bags, capacity
 end
 
 -- put back anything on cursor
@@ -74,12 +102,13 @@ end
 
 local function Extras()
     local loose = {}
-    for _, entry in ipairs(ReadBags()) do
+    local bags, capacity = ReadBags()
+    for _, entry in ipairs(bags) do
         if not entry.soul then
             for _, place in ipairs(entry.shards) do loose[#loose + 1] = place end
         end
     end
-    return Core.ShardsToDestroy(loose, Count(), Limit())
+    return Core.ShardsToDestroy(loose, Count(), Limit(capacity))
 end
 
 -- destroy last shard over limit, outside soul bag
@@ -228,19 +257,19 @@ function Shards.Arm()
     end
 end
 
-local function SaveLimit(limit)
-    ns.db.buttons.shardLimit = Core.ClampShardLimit(limit)
-    holdUntil = GetTime() + Core.SHARD_LIMIT_HOLD
-    Shards.Arm()
-    Shards.UpdateCountdown()
+-- set limit from settings page
+function Shards.SetLimit(limit)
+    local current, low, high = Limit()
+    if not Core.IsNumber(limit) then return end
+    limit = math.max(low, math.min(high, math.floor(limit)))
+    if limit == current then return end
+    ns.SetSetting("buttons.shardLimit", limit)
 end
 
 -- right click, auto destroy on or off
 function Shards.ToggleAuto()
-    ns.db.buttons.autoDestroy = not AutoOn()
-    refused = {}
+    ns.SetSetting("buttons.autoDestroy", not AutoOn())
     ns.Print(AutoOn() and Text.SHARDS_AUTO_ON or Text.SHARDS_AUTO_OFF)
-    Shards.Arm()
     if AutoOn() then TryAuto("shard button") end
 end
 
@@ -330,6 +359,7 @@ local function Changed()
     Shards.Update()
     if ns.Sphere then ns.Sphere.UpdateShards() end
     Tips.Redraw(button)
+    if ns.SettingsWindow and ns.SettingsWindow.RefreshShardLimit then ns.SettingsWindow.RefreshShardLimit() end
 end
 
 local function Create(sphere)
@@ -378,12 +408,11 @@ local function Create(sphere)
             Shards.Sort()
         elseif mouse == "RightButton" then
             Shards.ToggleAuto()
-            Changed()
         end
     end)
+    ns.Sounds.Button(button)
     button:SetScript("OnMouseWheel", function(_, delta)
-        SaveLimit(Limit() + (delta > 0 and 1 or -1))
-        Changed()
+        Shards.SetLimit(Limit() + (delta > 0 and 1 or -1))
     end)
     ns.Rings.Attach(button, button, "ShardDestroy")
     button.wanted = true
@@ -395,23 +424,38 @@ end
 Buttons.OnCreate(function(sphere) Create(sphere) end)
 
 local events = CreateFrame("Frame")
+local lastCapacity
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then lastCombatEnd = GetTime() end
     Shards.Arm()
     Shards.Update()
+    if event == "BAG_UPDATE_DELAYED" then
+        local capacity = SoulBagCapacity()
+        if capacity ~= lastCapacity then
+            lastCapacity = capacity
+            if ns.SettingsWindow and ns.SettingsWindow.RefreshShardLimit then ns.SettingsWindow.RefreshShardLimit() end
+        end
+    end
 end)
 
 table.insert(ns.onSphere, function()
+    lastCapacity = SoulBagCapacity()
     events:RegisterEvent("BAG_UPDATE_DELAYED")
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
     events:RegisterEvent("PLAYER_REGEN_DISABLED")
     Shards.Arm()
 end)
 
--- set limit from settings page
-function Shards.SetLimit(limit)
-    SaveLimit(limit)
+ns.OnSetting("buttons.shardLimit", function()
+    holdUntil = GetTime() + Core.SHARD_LIMIT_HOLD
+    Shards.Arm()
+    if button then Changed(); Shards.UpdateCountdown() end
+end)
+
+ns.OnSetting("buttons.autoDestroy", function()
+    refused = {}
+    Shards.Arm()
     if button then Changed() end
-end
+end)
 
 Shards.Button = function() return button end

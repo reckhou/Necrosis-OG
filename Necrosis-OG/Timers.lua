@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -42,7 +43,7 @@ local IsSecret, Plain, SpellName = ns.Game.IsSecret, ns.Game.Plain, ns.Game.Spel
 
 -- sound and yellow line before control end
 local function Warn(timer)
-    if not ns.db.timers.warnSound or not ns.db.timers.controlOn or ns.db.procBar.on == false then return end
+    if not ns.db.timers.warnSound or not ns.db.timers.controlOn then return end
     if type(PlaySound) == "function" and not ns.Silent() then
         pcall(PlaySound, type(SOUNDKIT) == "table" and SOUNDKIT.RAID_WARNING or WARNING_SOUND)
     end
@@ -58,8 +59,16 @@ end
 
 local function PlayEndSound(key)
     local file = END_SOUNDS[key]
-    if not file or ns.db.timers.sounds[key] == false or ns.db.procBar.on == false or ns.Silent() or type(PlaySoundFile) ~= "function" then return end
+    if not file or ns.db.timers.sounds[key] == false or ns.Silent() or type(PlaySoundFile) ~= "function" then return end
     pcall(PlaySoundFile, Core.SoundPath(file), "Master")
+end
+
+function Timers.TestWarn()
+    Warn({ name = SpellName(Core.SPELLS.fear[1]) or "Fear" })
+end
+
+function Timers.TestEndSound()
+    PlayEndSound("enslaveDemon")
 end
 
 local function Scale(key) return Core.TimerScale(ns.db.timers, key) / 100 end

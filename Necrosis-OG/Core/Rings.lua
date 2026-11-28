@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -84,6 +85,29 @@ Core.RING_TINT = {
     amplifyCurse = { 0.750, 0.732, 0.250 },
     classWarlock = { 0.596, 0.250, 0.750 },
     soulShard = { 0.732, 0.078, 0.922 },
+    imp = { 0.075, 0.925, 0.193 },
+    voidwalker = { 0.075, 0.112, 0.925 },
+    succubus = { 0.250, 0.675, 0.750 },
+    incubus = { 0.825, 0.175, 0.434 },
+    felhunter = { 0.750, 0.351, 0.250 },
+    inferno = { 0.145, 0.867, 0.133 },
+    ritualOfDoom = { 0.925, 0.075, 0.223 },
+    enslaveDemon = { 0.269, 0.175, 0.825 },
+    demonSkin = { 0.730, 0.250, 0.750 },
+    demonArmor = { 0.730, 0.250, 0.750 },
+    detectInvisibility = { 0.099, 0.901, 0.518 },
+    eyeOfKilrogg = { 0.763, 0.369, 0.237 },
+    ritualOfSummoning = { 0.533, 0.237, 0.763 },
+    shadowWard = { 0.608, 0.075, 0.925 },
+    baneOfAgony = { 0.860, 0.140, 0.166 },
+    curseOfTongues = { 0.911, 0.089, 0.339 },
+    curseOfExhaustion = { 0.750, 0.260, 0.250 },
+    curseOfElements = { 0.404, 0.079, 0.921 },
+    baneOfDoom = { 0.075, 0.925, 0.656 },
+    createHealthstone = { 0.165, 0.915, 0.085 },
+    createSoulstone = { 0.585, 0.088, 0.912 },
+    createFirestone = { 0.877, 0.123, 0.155 },
+    createSpellstone = { 0.381, 0.128, 0.872 },
 }
 
 function Core.RingColour(key)

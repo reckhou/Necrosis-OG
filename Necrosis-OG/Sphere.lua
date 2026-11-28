@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -24,9 +25,13 @@ local Core, Text = ns.Core, ns.Text
 local Sphere = {}
 ns.Sphere = Sphere
 
-local frame, fill, glow, countText, ring, needle
+local frame, fill, glow, arrivalFlash, countText, ring, needle
 local GLOW_ALPHA = 0.4
 local lastCount = 0
+local knownCount
+local shownTexture
+local flashRemaining = 0
+local flashDriver
 local layoutPending = false
 local warnedThisFight = false
 local demoShards, demoThreat
@@ -37,7 +42,7 @@ local function ApplyLayout()
     local saved = ns.db.sphere
     frame:ClearAllPoints()
     frame:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y)
-    frame:SetScale(Core.ClampSphereScale(saved.scale) / 100)
+    frame:SetScale(Core.SphereFrameScale(saved.scale))
 end
 
 -- apply layout now, or wait after combat
@@ -58,49 +63,137 @@ local function SavePosition()
     saved.point, saved.relativePoint, saved.x, saved.y = point, relativePoint, x, y
 end
 
-function Sphere.UpdateShards()
+local previewShown = false
+
+function Sphere.SetPreviewShown(shown)
+    previewShown = shown
+    countText:SetShown(ns.db.sphere.showCount == true and not shown)
+end
+
+local function ApplyShards(count)
+    shownTexture = Core.ShardTexture(ns.db.skin, count)
+    fill:SetTexture(shownTexture)
+    glow:SetTexture(shownTexture)
+    local threshold = Core.ClampThreshold(ns.db.sphere.lowShards)
+    local limit = ns.Shards and ns.Shards.Limit() or Core.ShardLimit(ns.db.buttons.shardLimit)
+    local shownLimit = ns.Shards and ns.Shards.ShownLimit(limit) or nil
+    local text = Core.ShardCountText(count, threshold, shownLimit)
+    local ratio = 0
+    if count >= threshold then
+        ratio = count >= limit and 1 or (count - threshold) / (limit - threshold)
+    end
+    countText:SetText(text)
+    countText:SetTextColor(Core.TitleColourAt(ratio))
+    Sphere.SetPreviewShown(previewShown)
+end
+
+function Sphere.Flash()
+    if not arrivalFlash or not shownTexture or not ns.AnimationsOn() then return end
+    arrivalFlash:SetTexture(shownTexture)
+    arrivalFlash:SetAlpha(0.85)
+    arrivalFlash:Show()
+    flashRemaining = Core.ORB_FLASH_SECONDS
+    if not flashDriver then flashDriver = CreateFrame("Frame", nil, frame) end
+    flashDriver:SetScript("OnUpdate", function(self, delta)
+        if not ns.AnimationsOn() then
+            flashRemaining = 0
+            arrivalFlash:SetAlpha(0)
+            arrivalFlash:Hide()
+            self:SetScript("OnUpdate", nil)
+            return
+        end
+        flashRemaining = flashRemaining - (delta or 0) * ns.AnimationSpeed()
+        if flashRemaining <= 0 then
+            flashRemaining = 0
+            arrivalFlash:SetAlpha(0)
+            arrivalFlash:Hide()
+            self:SetScript("OnUpdate", nil)
+            return
+        end
+        arrivalFlash:SetAlpha(0.85 * (flashRemaining / Core.ORB_FLASH_SECONDS))
+    end)
+end
+
+function Sphere.UpdateShards(immediate)
     if not frame then return end
     local ok, count = pcall(C_Item.GetItemCount, Core.SOUL_SHARD_ITEM)
     if not ok or IsSecret(count) or type(count) ~= "number" then count = lastCount end
     lastCount = count
-    count = demoShards or count
-    fill:SetTexture(Core.ShardTexture(ns.db.skin, count))
-    glow:SetTexture(Core.ShardTexture(ns.db.skin, count))
-    local limit = ns.Shards and ns.Shards.ShownLimit() or nil
-    local text, low = Core.ShardCountText(count, ns.db.sphere.lowShards, limit)
-    countText:SetText(text)
-    if low then countText:SetTextColor(1, 0.2, 0.2) else countText:SetTextColor(1, 1, 1) end
-    countText:SetShown(ns.db.sphere.showCount == true)
+    if demoShards ~= nil then
+        ApplyShards(demoShards)
+        return
+    end
+    local prev = knownCount
+    knownCount = count
+    local gained = prev ~= nil and Core.OrbGain(prev, count) or 0
+    if not immediate and gained > 0 and ns.Orbs then
+        local targetCount = count
+        if ns.Orbs.Launch(gained, function()
+            if demoShards ~= nil then return end
+            ApplyShards(math.min(targetCount, knownCount))
+            Sphere.Flash()
+        end) then
+            return
+        end
+    end
+    ApplyShards(count)
 end
 
-local function ThreatPercent()
-    if not UnitExists("target") then return 0 end
-    local ok, _, _, scaled = pcall(UnitDetailedThreatSituation, "player", "target")
-    if not ok or IsSecret(scaled) then return 0 end
-    return Core.ThreatPercent(scaled)
+local function ThreatSituation()
+    if not UnitExists("target") then return 0, false end
+    local ok, isTanking, _, scaled = pcall(UnitDetailedThreatSituation, "player", "target")
+    if not ok then return 0, false end
+    local percent = IsSecret(scaled) and 0 or Core.ThreatPercent(scaled)
+    local aggro = not IsSecret(isTanking) and isTanking == true
+    return percent, aggro
 end
 
 local shownPercent
+local goalPercent
+local hasAggro = false
+local flashElapsed = 0
 
--- redraw threat ring only when percent changed
-function Sphere.UpdateThreat()
-    if not ring then return end
-    local combat = InCombat()
-    if not ns.db.sphere.showThreat or (not combat and demoThreat == nil) then
-        ring:Hide()
-        shownPercent = nil
-        return
-    end
-    local percent = combat and ThreatPercent() or demoThreat
-    if percent == shownPercent then return end
-    shownPercent = percent
+local function DrawSegments(percent, tint, flashAlpha)
     local r, g, b = Core.ThreatColor(percent)
-    local alpha = Core.ThreatAlpha(percent)
+    if tint and tint > 0 then r, g, b = Core.ThreatFlashColor(r, g, b, tint) end
+    local alpha = Core.ThreatAlpha(percent) * (flashAlpha or 1)
     for _, segment in ipairs(ring.segments) do segment:SetVertexColor(r, g, b, alpha) end
+end
+
+local function DrawThreat(percent, tint, flashAlpha)
+    shownPercent = percent
+    DrawSegments(percent, tint, flashAlpha)
     local x, y, angle = Core.NeedleOffset(Core.SPHERE_SIZE, percent)
     needle:ClearAllPoints()
     needle:SetPoint("CENTER", ring, "CENTER", x, y)
     needle:SetRotation(angle)
+end
+
+-- read threat again, needle glide to new value
+function Sphere.UpdateThreat(snap)
+    if not ring then return end
+    local combat = InCombat()
+    if not ns.db.sphere.showThreat or (not combat and demoThreat == nil) then
+        ring:Hide()
+        shownPercent, goalPercent, hasAggro, flashElapsed = nil, nil, false, 0
+        return
+    end
+    local aggro
+    if combat then
+        goalPercent, aggro = ThreatSituation()
+    else
+        goalPercent, aggro = demoThreat, demoThreat >= 100
+    end
+    if aggro ~= hasAggro then
+        hasAggro = aggro
+        flashElapsed = 0
+        if not aggro and shownPercent ~= nil then DrawSegments(shownPercent, 0, 1) end
+    end
+    local tint = hasAggro and Core.ThreatFlashTint(flashElapsed) or 0
+    local flashAlpha = hasAggro and Core.ThreatFlashAlpha(flashElapsed) or 1
+    if goalPercent ~= shownPercent and (snap or shownPercent == nil or not ns.AnimationsOn()) then
+        DrawThreat(goalPercent, tint, flashAlpha)
+    end
     ring:Show()
 end
 
@@ -130,6 +223,14 @@ local function CreateRing()
             elapsed = 0
             Sphere.UpdateThreat()
         end
+        if hasAggro then flashElapsed = flashElapsed + delta end
+        local tint = hasAggro and Core.ThreatFlashTint(flashElapsed) or 0
+        local flashAlpha = hasAggro and Core.ThreatFlashAlpha(flashElapsed) or 1
+        if goalPercent ~= nil and shownPercent ~= goalPercent then
+            DrawThreat(Core.ThreatEase(shownPercent, goalPercent, delta, ns.AnimationSpeed()), tint, flashAlpha)
+        elseif hasAggro and shownPercent ~= nil then
+            DrawSegments(shownPercent, tint, flashAlpha)
+        end
     end)
     ring:Hide()
 end
@@ -151,8 +252,13 @@ local function Create()
     glow:SetBlendMode("ADD")
     glow:SetAlpha(GLOW_ALPHA)
     glow:Hide()
+    arrivalFlash = frame:CreateTexture(nil, "ARTWORK", nil, 1)
+    arrivalFlash:SetAllPoints()
+    arrivalFlash:SetBlendMode("ADD")
+    arrivalFlash:SetAlpha(0)
+    arrivalFlash:Hide()
 
-    countText = frame:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall"))
+    countText = frame:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", nil, true))
     countText:SetPoint("CENTER", frame, "CENTER", 0, 0)
 
     frame:SetScript("OnDragStart", function(self)
@@ -173,6 +279,7 @@ local function Create()
     frame:SetScript("OnClick", function(_, button)
         if button == "RightButton" then ns.SettingsWindow.Toggle() end
     end)
+    ns.Sounds.Button(frame)
 
     CreateRing()
     ApplyLayout()
@@ -221,7 +328,7 @@ events:SetScript("OnEvent", function(self, event, ...)
         ns.Fire(ns.onSphere, frame)
         ns.SetPlacing(not ns.db.locked)
     end
-    Sphere.UpdateShards()
+    Sphere.UpdateShards(true)
     Sphere.UpdateThreat()
 end)
 
@@ -229,21 +336,37 @@ table.insert(ns.onDemoData, function(on)
     if not frame then return end
     if not on then
         demoShards, demoThreat = nil, nil
-        Sphere.UpdateShards()
+        if ns.Orbs then ns.Orbs.Clear() end
+        Sphere.UpdateShards(true)
         Sphere.UpdateThreat()
         return
     end
-    local shardStep, threatStep = 0, 0
+    local shardStep, prevDemo = 0, nil
     ns.DemoEvery(Core.DEMO.shardStep, function()
-        demoShards = Core.DemoBounce(shardStep, Core.SHARD_COUNT_MAX)
+        local nextCount = Core.DemoBounce(shardStep, Core.SHARD_COUNT_MAX)
+        if prevDemo ~= nil and nextCount < prevDemo and ns.Orbs and ns.Orbs.ActiveCount() > 0 then return end
+        demoShards = nextCount
         shardStep = shardStep + 1
-        Sphere.UpdateShards()
+        if prevDemo ~= nil and demoShards > prevDemo and ns.Orbs and ns.Orbs.DemoOrigin then
+            local ox, oy = ns.Orbs.DemoOrigin()
+            local landedCount = demoShards
+            if ox and ns.Orbs.Launch(1, function()
+                if demoShards == nil then return end
+                ApplyShards(landedCount)
+                Sphere.Flash()
+            end, ox, oy) then
+                prevDemo = demoShards
+                return
+            end
+        end
+        prevDemo = demoShards
+        Sphere.UpdateShards(true)
     end)
-    local per = Core.DEMO.threatPerStep
+    local levels, index = Core.DEMO.threatLevels, 1
     ns.DemoEvery(Core.DEMO.threatStep, function()
-        demoThreat = Core.DemoBounce(threatStep, math.floor(100 / per)) * per
-        threatStep = threatStep + 1
-        Sphere.UpdateThreat()
+        demoThreat = levels[index]
+        Sphere.UpdateThreat(index == 1)
+        index = index % #levels + 1
     end)
 end)
 
@@ -255,19 +378,33 @@ function Sphere.ResetPositions()
     if frame then Sphere.RequestLayout() end
 end
 
+local resetPending = false
+
 function Sphere.ResetAll()
     if InCombat() then
         ns.Print(Text.RESET_IN_COMBAT)
         return
     end
-    NecrosisOGDB = {}
-    local reload = (C_UI and C_UI.Reload) or ReloadUI
-    reload()
+    resetPending = true
 end
+
+local leaving = CreateFrame("Frame")
+leaving:RegisterEvent("PLAYER_LOGOUT")
+leaving:SetScript("OnEvent", function()
+    if resetPending then NecrosisOGDB = {} end
+end)
 
 -- return false if must wait combat end
 function Sphere.SetScale(scale)
-    ns.db.sphere.scale = Core.ClampSphereScale(scale)
+    local saved = ns.db.sphere
+    local newScale = Core.ClampSphereScale(scale)
+    local ratio = Core.ClampSphereScale(saved.scale) / newScale
+    local half = Core.SPHERE_SIZE / 2
+    local anchorX = (saved.point:find("RIGHT") and half) or (saved.point:find("LEFT") and -half) or 0
+    local anchorY = (saved.point:find("TOP") and half) or (saved.point:find("BOTTOM") and -half) or 0
+    saved.x = anchorX + (saved.x - anchorX) * ratio
+    saved.y = anchorY + (saved.y - anchorY) * ratio
+    saved.scale = newScale
     return Sphere.RequestLayout() ~= false
 end
 
@@ -278,7 +415,7 @@ function Sphere.SetHighlight(on)
     if glow then glow:SetShown(on == true) end
 end
 
-Sphere.Frame = function() return frame, fill, countText, ring, needle, glow end
+Sphere.Frame = function() return frame, fill, countText, ring, needle, glow, arrivalFlash end
 
-ns.OnSetting({ "sphere.showCount", "sphere.lowShards", "skin" }, function() Sphere.UpdateShards() end)
-ns.OnSetting("sphere.showThreat", Sphere.UpdateThreat)
+ns.OnSetting({ "sphere.showCount", "sphere.lowShards", "skin" }, function() Sphere.UpdateShards(true) end)
+ns.OnSetting("sphere.showThreat", function() Sphere.UpdateThreat() end)

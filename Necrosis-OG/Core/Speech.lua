@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -88,6 +89,16 @@ function Core.PresetName(set, limit, empty)
     return string.sub(text, 1, cut) .. "..."
 end
 
+local TAG_COLOURS = { { "<target>", "|cff3fa9ff" }, { "<pet>", "|cff6be46b" }, { "<player>", "|cffff8c42" } }
+
+function Core.ColourTags(text)
+    if type(text) ~= "string" or not text:find("<", 1, true) then return text end
+    for _, tag in ipairs(TAG_COLOURS) do
+        text = text:gsub(tag[1], tag[2] .. tag[1] .. "|r")
+    end
+    return text
+end
+
 -- shuffle sets, keep last pick out of first place
 function Core.SpeechOrder(sets, last, random)
     local order = {}
@@ -113,16 +124,6 @@ function Core.FillSpeech(text, names, fallback)
     text = string.gsub(text, "<target>", function() return Name("target") end)
     text = string.gsub(text, "<pet>", function() return Name("pet") end)
     return text
-end
-
-Core.SPEECH_PROMO_CHANCE = 0.1
-
-function Core.SpeechPromo(subject, text)
-    return TextSet(text, "SPEECH_" .. string.upper(subject) .. "_PROMO_")
-end
-
-function Core.ChoosePromo(promo, random)
-    return promo ~= nil and random() < Core.SPEECH_PROMO_CHANCE
 end
 
 -- party channel go raid when in raid, say when not in group

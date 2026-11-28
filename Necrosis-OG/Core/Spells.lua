@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -106,7 +107,7 @@ Core.FOCUS_ICONS = {
     { key = "deathCoil", spell = "deathCoil", row = 1, fit = "fear", switch = "deathCoil" },
 }
 
-Core.FOCUS_SWITCHES = { "banish", "seduction", "fear", "deathCoil" }
+Core.FOCUS_SWITCHES = { "banish", "fear", "seduction", "deathCoil" }
 
 function Core.FocusIconOn(key, off)
     local def = Core.FOCUS_ICON_BY_KEY[key]
@@ -117,11 +118,18 @@ end
 Core.FOCUS_ROW_COUNT = 1
 
 Core.FOCUS_ICON, Core.FOCUS_ICON_GAP = 40, -4
-Core.FOCUS_HANDLE = 18 -- px high
+Core.FOCUS_HANDLE = 18  -- px high
 
 Core.FOCUS_TIME_SIZE = 16
 
 Core.FOCUS_RANGE_ALPHA, Core.FOCUS_RANGE_SECONDS = 0.5, 0.2
+
+Core.NO_RANGE_COVER = { ritualOfSummoning = true }
+
+function Core.TakesRangeCover(key)
+    return type(key) == "string" and not Core.NO_RANGE_COVER[key]
+end
+
 Core.FOCUS_ICON_BY_KEY = {}
 for _, def in ipairs(Core.FOCUS_ICONS) do Core.FOCUS_ICON_BY_KEY[def.key] = def end
 
@@ -288,6 +296,7 @@ Core.FOCUS_MACROS = { fear = "NOG Fear", banish = "NOG Banish", enslaveDemon = "
 Core.STONE_MACRO_KEYS = { "healthstone", "hearthstone" }
 Core.STONE_MACROS = { healthstone = "NOG Healthstone", hearthstone = "NOG Hearthstone" }
 Core.STONE_MACRO_SPELLS = { healthstone = "createHealthstone" }
+
 Core.CURSE_MACRO_KEYS = Core.AMPLIFY_LIST
 Core.CURSE_MACROS = { curseOfWeakness = "NOG Weakness", baneOfAgony = "NOG Agony", curseOfExhaustion = "NOG Exhaustion" }
 
@@ -318,12 +327,9 @@ function Core.AmplifyMacroBody(amplifyName, curseName)
     return "#showtooltip " .. curseName .. "\n" .. Core.AmplifyCast(amplifyName, curseName)
 end
 
--- macro text for cast on focus
-function Core.FocusMacroBody(spellName, focus)
-    local lines = { "#showtooltip" }
-    if focus then lines[#lines + 1] = "/focus [harm]" end
-    lines[#lines + 1] = "/cast " .. spellName
-    return table.concat(lines, "\n")
+-- macro text, set focus to enemy target then cast
+function Core.FocusMacroBody(spellName)
+    return "#showtooltip\n/focus [harm]\n/cast " .. spellName
 end
 
 Core.SOULSTONE_AURAS = { 20707, 20762, 20763, 20764, 20765 }
@@ -332,20 +338,38 @@ Core.CONTROL_BUTTON_KEYS = { "armour", "healthstone", "soulLink", "demon", "sacr
 
 Core.SOULLINK_AURAS = { 25228, 19028 }
 Core.SACRIFICE_AURAS = { 18789, 18790, 18791, 18792 }
+Core.SACRIFICE_DEMON = { [18789] = "imp", [18790] = "voidwalker", [18791] = "succubus", [18792] = "felhunter" }
+
+function Core.SacrificedDemon(aura, learned)
+    return Core.SACRIFICE_DEMON[aura] or (learned and learned[aura])
+end
+
+function Core.SacrificeRisk(key, aura, pact, learned)
+    if not aura or not key then return false end
+    local demon = Core.SacrificedDemon(aura, learned)
+    return not pact or not demon or demon == key or (demon == "succubus" and key == "incubus")
+end
+
+function Core.SacrificeReplaceRisk(aura, family, learned)
+    if not aura then return false end
+    local demon = Core.SacrificedDemon(aura, learned)
+    return not demon or demon ~= family
+end
+
 Core.DEMON_SUMMON_KEYS = { "imp", "voidwalker", "succubus", "incubus", "felhunter" }
 Core.CONTROL_BUTTONS = {
-    armour = { spells = { "demonSkin", "demonArmor" }, art = "Armor", picture = "-01", missing = "buff" },
-    healthstone = { spells = { "createHealthstone" }, art = "HealthstoneButton", picture = "-02",
+    armour = { spells = { "demonSkin", "demonArmor" }, art = "Ring", gameIcon = true, missing = "buff" },
+    healthstone = { spells = { "createHealthstone" }, art = "Ring", gameIcon = true,
         missing = "stone", stone = "healthstone" },
     soulLink = { spells = { "soulLink" }, art = "Ring", gameIcon = true, missing = "buff",
         auras = Core.SOULLINK_AURAS, needsPet = true },
-    demon = { spells = Core.DEMON_SUMMON_KEYS, art = "PetMenuButton", picture = "-01",
+    demon = { spells = Core.DEMON_SUMMON_KEYS, art = "Ring", gameIcon = true,
         missing = "demon", label = "SET_ALERT_DEMON" },
     sacrifice = { spells = { "demonicSacrifice" }, art = "Ring", gameIcon = true, missing = "buff",
         auras = Core.SACRIFICE_AURAS, learned = "sacAuras", needsPet = true, requires = "demonicPact" },
-    weaponStone = { spells = { "createFirestone", "createSpellstone" }, art = "FirestoneButton", picture = "-02",
+    weaponStone = { spells = { "createFirestone", "createSpellstone" }, art = "Ring", gameIcon = true,
         missing = "enchant", label = "SET_ALERT_WEAPON_STONE" },
-    soulstone = { spells = { "createSoulstone" }, art = "SoulstoneButton", picture = "-02",
+    soulstone = { spells = { "createSoulstone" }, art = "Ring", gameIcon = true,
         missing = "soulstoneReady", auras = Core.SOULSTONE_AURAS, label = "SET_ALERT_SOULSTONE" },
     unendingBreath = { spells = { "unendingBreath" }, art = "Ring", gameIcon = true, missing = "breath", alwaysShow = true },
 }
@@ -400,10 +424,12 @@ end
 -- demon to summon, last one or best learned
 function Core.DemonToSummon(known, last, sacrificedKey, avoidSacrificed)
     local avoid = avoidSacrificed and sacrificedKey ~= "" and sacrificedKey or nil
-    if known[last] and last ~= avoid then return last end
-    for i = #Core.DEMON_SUMMON_KEYS, 1, -1 do
-        local key = Core.DEMON_SUMMON_KEYS[i]
-        if known[key] and key ~= avoid then return key end
+    local function allowed(key)
+        return known[key] and key ~= avoid and not (avoid == "succubus" and key == "incubus")
+    end
+    if allowed(last) then return last end
+    for _, key in ipairs(Core.DEMON_SUMMON_KEYS) do
+        if allowed(key) then return key end
     end
     return nil
 end
@@ -600,28 +626,28 @@ function Core.DemonKey(spellID)
 end
 
 Core.DEMON_MENU = {
-    { keys = { "imp" }, art = "Imp", demon = true },
-    { keys = { "voidwalker" }, art = "Voidwalker", demon = true },
-    { keys = { "succubus" }, art = "Succubus", demon = true },
-    { keys = { "incubus" }, art = "Inccubus", demon = true },
-    { keys = { "felhunter" }, art = "Felhunter", demon = true },
-    { keys = { "inferno" }, art = "Infernal", demon = true },
-    { keys = { "ritualOfDoom" }, art = "Doomguard", demon = true },
+    { keys = { "imp" }, art = "Ring", gameIcon = true, demon = true },
+    { keys = { "voidwalker" }, art = "Ring", gameIcon = true, demon = true },
+    { keys = { "succubus" }, art = "Ring", gameIcon = true, demon = true },
+    { keys = { "incubus" }, art = "Ring", gameIcon = true, demon = true },
+    { keys = { "felhunter" }, art = "Ring", gameIcon = true, demon = true },
+    { keys = { "inferno" }, art = "Ring", gameIcon = true, demon = true },
+    { keys = { "ritualOfDoom" }, art = "Ring", gameIcon = true, demon = true },
     { keys = { "felDomination" }, art = "Ring", gameIcon = true },
     { keys = { "healthFunnel" }, art = "Ring", gameIcon = true },
     { keys = { "senseDemons" }, art = "Ring", gameIcon = true },
     { keys = { "soulLink" }, art = "Ring", gameIcon = true },
     { keys = { "demonicSacrifice" }, art = "Ring", gameIcon = true },
-    { keys = { "enslaveDemon" }, art = "Enslave" },
+    { keys = { "enslaveDemon" }, art = "Ring", gameIcon = true },
 }
 Core.UTILITY_MENU = {
-    { keys = { "demonSkin", "demonArmor" }, art = "Armor" },
-    { keys = { "unendingBreath" }, art = "Aqua" },
-    { keys = { "detectInvisibility" }, art = "Invisible" },
-    { keys = { "eyeOfKilrogg" }, art = "Kilrogg" },
-    { keys = { "ritualOfSummoning" }, art = "TP" },
-    { keys = { "shadowWard" }, art = "ShadowProtection" },
-    { keys = { "banish" }, art = "Banish" },
+    { keys = { "demonSkin", "demonArmor" }, art = "Ring", gameIcon = true },
+    { keys = { "unendingBreath" }, art = "Ring", gameIcon = true },
+    { keys = { "detectInvisibility" }, art = "Ring", gameIcon = true },
+    { keys = { "eyeOfKilrogg" }, art = "Ring", gameIcon = true },
+    { keys = { "ritualOfSummoning" }, art = "Ring", gameIcon = true },
+    { keys = { "shadowWard" }, art = "Ring", gameIcon = true },
+    { keys = { "banish" }, art = "Ring", gameIcon = true },
     { keys = { "lifeTap" }, art = "Ring", gameIcon = true },
     { keys = { "drainSoul" }, art = "Ring", gameIcon = true },
     { keys = { "drainMana" }, art = "Ring", gameIcon = true },
@@ -631,13 +657,13 @@ Core.UTILITY_MENU = {
 
 Core.CURSE_MENU = {
     { keys = { "amplifyCurse" }, art = "Ring", gameIcon = true },
-    { keys = { "curseOfWeakness" }, art = "Weakness" },
-    { keys = { "baneOfAgony" }, art = "Agony" },
-    { keys = { "curseOfTongues" }, art = "Tongues" },
-    { keys = { "curseOfExhaustion" }, art = "Exhaust" },
-    { keys = { "curseOfElements" }, art = "Elements" },
-    { keys = { "curseOfRecklessness" }, art = "Reckless" },
-    { keys = { "baneOfDoom" }, art = "Doom" },
+    { keys = { "curseOfWeakness" }, art = "Ring", gameIcon = true },
+    { keys = { "baneOfAgony" }, art = "Ring", gameIcon = true },
+    { keys = { "curseOfTongues" }, art = "Ring", gameIcon = true },
+    { keys = { "curseOfExhaustion" }, art = "Ring", gameIcon = true },
+    { keys = { "curseOfElements" }, art = "Ring", gameIcon = true },
+    { keys = { "curseOfRecklessness" }, art = "Ring", gameIcon = true },
+    { keys = { "baneOfDoom" }, art = "Ring", gameIcon = true },
     { keys = { "baneOfHavoc" }, art = "Ring", gameIcon = true },
 }
 

@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -24,11 +25,26 @@ local Core = ns.Core
 Core.GRADIENT_HEADING = { { 0xC0, 0x50, 0xFF }, { 0xE0, 0x50, 0xFF }, { 0xFF, 0x66, 0xF0 }, { 0xFF, 0x99, 0xF5 },
     { 0xFF, 0xC4, 0xFF } }
 Core.GRADIENT_TITLE = { { 0xFF, 0x00, 0xFF }, { 0xFF, 0x50, 0xFF }, { 0xFF, 0x99, 0xFF }, { 0xFF, 0xC4, 0xFF },
-    { 0xFF, 0xFF, 0xFF } }
+    { 0xFF, 0xE2, 0xFF } }
 
 Core.GRADIENT_SPAN = 9
 
-function Core.Gradient(text, stops, span)
+local function GradientPoints(stops)
+    local points = {}
+    for i, stop in ipairs(stops) do
+        points[i] = { #stops > 1 and (i - 1) / (#stops - 1) or 0, stop[1], stop[2], stop[3] }
+    end
+    return points
+end
+
+local titlePoints = GradientPoints(Core.GRADIENT_TITLE)
+
+function Core.TitleColourAt(fraction)
+    local r, g, b = Core.ColourAt(titlePoints, fraction)
+    return r / 255, g / 255, b / 255
+end
+
+function Core.Gradient(text, stops, span, perCode)
     local letters = {}
     for letter in string.gmatch(text, "[%z\1-\127\194-\244][\128-\191]*") do letters[#letters + 1] = letter end
     local count = 0
@@ -36,17 +52,15 @@ function Core.Gradient(text, stops, span)
         if letter ~= " " then count = count + 1 end
     end
     if count == 0 then return text end
-    local points = {}
-    for i, stop in ipairs(stops) do
-        points[i] = { #stops > 1 and (i - 1) / (#stops - 1) or 0, stop[1], stop[2], stop[3] }
-    end
+    local points = GradientPoints(stops)
     local out, place, last = {}, 0, nil
     for _, letter in ipairs(letters) do
         if letter ~= " " then
             local x = 0
             if count > 1 then
                 local run = math.min(count, span or Core.GRADIENT_SPAN) - 1
-                local at = place % (2 * run)
+                local block = (perCode and perCode > 1) and math.floor(place / perCode) * perCode or place
+                local at = block % (2 * run)
                 if at > run then at = 2 * run - at end
                 x = at / run
             end
@@ -62,4 +76,10 @@ function Core.Gradient(text, stops, span)
     end
     out[#out + 1] = "|r"
     return table.concat(out)
+end
+
+Core.TIP_HEADING_LETTERS = 5
+
+function Core.TipHeading(text)
+    return (Core.Gradient(text, Core.GRADIENT_HEADING, nil, Core.TIP_HEADING_LETTERS):gsub("|r$", ""))
 end

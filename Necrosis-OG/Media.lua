@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -143,6 +144,43 @@ end
 
 function Media.ApplyBars()
     for _, texture in ipairs(bars) do DrawBar(texture) end
+end
+
+function Media.DragLabel(parent, anchor, text)
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(1, 1)
+    holder:SetPoint("BOTTOM", anchor, "TOP", 0, 0)
+    local label = holder:CreateFontString(nil, "OVERLAY", Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
+    label:SetPoint("BOTTOM", holder, "BOTTOM", 0, 2)
+    label:SetText(Core.Gradient(text, Core.GRADIENT_HEADING))
+    return holder, label
+end
+
+local ROLE_ICON = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
+local ROLE_COORDS = { TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 } }
+local CLASS_ICON = "Interface\\WorldStateFrame\\ICONS-CLASSES"
+local CLASS_COORDS = {
+    WARRIOR = { 0, 0.25, 0, 0.25 }, MAGE = { 0.25, 0.49609375, 0, 0.25 }, ROGUE = { 0.49609375, 0.7421875, 0, 0.25 },
+    DRUID = { 0.7421875, 0.98828125, 0, 0.25 }, HUNTER = { 0, 0.25, 0.25, 0.5 },
+    SHAMAN = { 0.25, 0.49609375, 0.25, 0.5 }, PRIEST = { 0.49609375, 0.7421875, 0.25, 0.5 },
+    WARLOCK = { 0.7421875, 0.98828125, 0.25, 0.5 }, PALADIN = { 0, 0.25, 0.5, 0.75 },
+    DEATHKNIGHT = { 0.25, 0.5, 0.5, 0.75 }, MONK = { 0.5, 0.73828125, 0.5, 0.75 },
+    DEMONHUNTER = { 0.7421875, 0.98828125, 0.5, 0.75 }, EVOKER = { 0, 0.25, 0.75, 1 },
+}
+
+function Media.SetNameIcon(texture, class, role)
+    if ROLE_COORDS[role] then
+        texture:SetTexture(ROLE_ICON)
+        texture:SetTexCoord(unpack(ROLE_COORDS[role]))
+    elseif CLASS_COORDS[class] then
+        texture:SetTexture(CLASS_ICON)
+        texture:SetTexCoord(unpack(CLASS_COORDS[class]))
+    else
+        texture:Hide()
+        return false
+    end
+    texture:Show()
+    return true
 end
 
 -- choices for dropdown, { key, label }

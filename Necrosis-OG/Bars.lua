@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -217,12 +218,13 @@ local function NewOutline(bar)
     outline:SetFrameStrata("HIGH")
     outline:SetPoint("CENTER", bar.frame, "CENTER", 0, 0)
     outline:SetSize(1, 1)
-    outline.back = outline:CreateTexture(nil, "BACKGROUND")
-    outline.back:SetAllPoints()
-    outline.back:SetColorTexture(0.45, 0.15, 0.55, 0.35)
-    outline.label = outline:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
-    outline.label:SetPoint("BOTTOM", outline, "TOP", 0, 2)
-    outline.label:SetText(Text[bar.spec.label])
+    local shade = CreateFrame("Frame", nil, outline)
+    shade:SetFrameStrata("LOW")
+    shade:SetAllPoints(outline)
+    local back = shade:CreateTexture(nil, "BACKGROUND")
+    back:SetAllPoints()
+    back:SetColorTexture(0.45, 0.15, 0.55, 0.35)
+    ns.Media.DragLabel(outline, outline, Text[bar.spec.label])
     outline:EnableMouse(true)
     outline:SetMovable(true)
     outline:RegisterForDrag("LeftButton")

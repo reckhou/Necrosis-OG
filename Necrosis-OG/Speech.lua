@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -27,6 +28,8 @@ ns.Speech = Speech
 local last = {}
 local queue = {}
 local spokeAt = {}
+local ritualClick, ritualCast
+local RITUAL = "ritualOfSummoning"
 
 local IsSecret, Plain = ns.Game.IsSecret, ns.Game.Plain
 
@@ -44,7 +47,7 @@ local function TargetName(kind)
 end
 
 local sending, blocked = false, false
-local blockedHere = false
+local blockedHere = {}
 local toldOnce = false
 
 local function Send(text, chatType)
@@ -104,43 +107,95 @@ local function NextSet(subject, sets)
     return sets[index]
 end
 
--- speak line for subject, targetKind is nil, "target" or "friend"
-function Speech.Speak(subject, targetKind)
+local function Announce(subject, targetName)
     local settings = ns.db.speech
     if not settings.on or settings.off[subject] then
         return
     end
+    local inGroup, inRaid = Plain(IsInGroup) == true, Plain(IsInRaid) == true
+    local ritual = subject == RITUAL
+    if ritual and not (inGroup or inRaid) then return end
+    local channel = Core.SpeechChannel(ritual and "PARTY" or settings.channel, inGroup, inRaid)
+    local source = ritual and RITUAL or "click"
     local now = GetTime()
     if spokeAt[subject] and now - spokeAt[subject] < Core.SpeechCooldown(subject) then
         return
     end
-    if IsCasting() or CannotCastNow(subject) or SpellUnusable(subject) then
-        return
-    end
-    local set = Core.SpeechPromo(subject, Text)
-    if not Core.ChoosePromo(set, math.random) then
-        set = NextSet(subject, Core.SpeechSets(subject, settings.sets, Text))
-        if not set then return end
-    end
+    local set = NextSet(subject, Core.SpeechSets(subject, settings.sets, Text))
+    if not set then return end
     spokeAt[subject] = now
-    local names = { player = Plain(UnitName, "player"), target = TargetName(targetKind), pet = settings.petNames[subject] }
+    local names = { player = Plain(UnitName, "player"), target = targetName,
+        pet = settings.petNames[subject] }
     local fallback = { player = "", target = Text.SPEECH_NO_TARGET, pet = Text.SPEECH_NO_PET }
     local emote = set.emote ~= "" and Core.FillSpeech(set.emote, names, fallback) or nil
     local line = set.line ~= "" and Core.FillSpeech(set.line, names, fallback) or nil
-    local channel = Core.SpeechChannel(settings.channel, Plain(IsInGroup) == true, Plain(IsInRaid) == true)
-    if blockedHere then
+    if ritual then
+        local emoteSent = not emote or Send(emote, "EMOTE")
+        if line and (blockedHere[source] or not Send(line, channel)) then
+            blockedHere[source] = true
+            ToChatBox(line, channel)
+        elseif not emoteSent then
+            ToChatBox(emote, "EMOTE")
+        end
+        return
+    end
+    if blockedHere[source] then
         if line then ToChatBox(line, channel) else ToChatBox(emote, "EMOTE") end
         return
     end
     local emoteSent = not emote or Send(emote, "EMOTE")
     local lineSent = not line or Send(line, channel)
     if not (emoteSent and lineSent) then
-        blockedHere = true
+        blockedHere[source] = true
         if line and not lineSent then ToChatBox(line, channel) elseif emote then ToChatBox(emote, "EMOTE") end
     end
 end
 
-function Speech.Reset() last, spokeAt, queue = {}, {}, {} end
+-- speak line for subject, ritual wait untill the cast really start
+function Speech.Speak(subject, targetKind, targetName)
+    if subject == RITUAL then
+        ritualClick = { at = GetTime(), name = targetName, fallback = TargetName(targetKind) }
+    elseif not (IsCasting() or CannotCastNow(subject) or SpellUnusable(subject)) then
+        Announce(subject, targetName or TargetName(targetKind))
+    end
+end
+
+local function IsRitual(spellID)
+    return not IsSecret(spellID) and spellID == Core.SPELLS[RITUAL][1]
+end
+
+local function TakeRitualClick(target, castGUID)
+    local click = ritualClick
+    ritualClick = nil
+    if not click or GetTime() - click.at > 1 then return nil end
+    if IsSecret(target) or target == "" then target = nil end
+    return { guid = not IsSecret(castGUID) and castGUID or nil, name = click.name or target or click.fallback }
+end
+
+local function RitualEvent(event, guid, spellID)
+    local cast = ritualCast
+    local sameCast = cast and cast.guid and not IsSecret(guid) and guid == cast.guid
+    local sameSpell = IsRitual(spellID)
+    if event == "UNIT_SPELLCAST_START" then
+        if not (sameCast or sameSpell) then return end
+        cast = cast or TakeRitualClick(nil, guid)
+        if not cast then return end
+        cast.started = true
+        if not IsSecret(guid) and guid then cast.guid = guid end
+        ritualCast = cast
+    elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
+        if not (sameCast or (cast and cast.started and sameSpell)) then return end
+        ritualCast = nil
+        Announce(RITUAL, cast.name)
+    elseif sameCast or (sameSpell and cast and not cast.guid) then
+        ritualCast = nil
+    end
+end
+
+function Speech.Reset()
+    last, spokeAt, queue = {}, {}, {}
+    ritualClick, ritualCast = nil, nil
+end
 
 local function OwnSets(subject)
     queue[subject] = nil
@@ -186,7 +241,7 @@ end
 
 local addonName = ...
 local events = CreateFrame("Frame")
-events:SetScript("OnEvent", function(_, event, unit)
+events:SetScript("OnEvent", function(_, event, unit, ...)
     if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
         if unit == addonName then
             if sending then blocked = true end
@@ -194,15 +249,32 @@ events:SetScript("OnEvent", function(_, event, unit)
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
-        blockedHere = false
+        blockedHere = {}
+        ritualClick, ritualCast = nil, nil
         return
     end
-    if unit ~= "player" then return end
-    if C_Timer and C_Timer.After then C_Timer.After(0.5, RememberPet) else RememberPet() end
+    if IsSecret(unit) or unit ~= "player" then return end
+    if event == "UNIT_PET" then
+        if C_Timer and C_Timer.After then C_Timer.After(0.5, RememberPet) else RememberPet() end
+    elseif event == "UNIT_SPELLCAST_SENT" then
+        local target, guid, spellID = ...
+        if IsRitual(spellID) then
+            local click = TakeRitualClick(target, guid)
+            if not (ritualCast and ritualCast.started) then ritualCast = click end
+        end
+    else
+        RitualEvent(event, ...)
+    end
 end)
 
 table.insert(ns.onSphere, function()
     events:RegisterUnitEvent("UNIT_PET", "player")
+    events:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+    events:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+    events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
+    events:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
+    events:RegisterUnitEvent("UNIT_SPELLCAST_FAILED_QUIET", "player")
+    events:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
     events:RegisterEvent("ADDON_ACTION_BLOCKED")
     events:RegisterEvent("ADDON_ACTION_FORBIDDEN")
     events:RegisterEvent("PLAYER_ENTERING_WORLD")

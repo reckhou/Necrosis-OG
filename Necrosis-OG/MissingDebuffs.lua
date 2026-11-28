@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -327,6 +328,7 @@ local function ApplyLook(strip, base)
     strip.enabled = look.on ~= false
     strip.scale = Core.ClampScale(look.scale) / 100
     strip:SetScale(strip.scale)
+    if strip.title then strip.title:SetScale(1 / strip.scale) end
     strip.alpha = Core.ClampOpacity(look.opacity) / 100
     for _, icon in ipairs(strip.icons) do icon:SetAlpha(strip.alpha) end
     for _, cell in pairs(strip.cells) do
@@ -355,14 +357,13 @@ end
 local function UpdatePlacement()
     local strip = byUnit.target
     strip.placing = ns.placing and not Game.InCombat()
-    if not strip.placing then StopDrag(strip) end
     local shown = strip.placing and strip.enabled
+    if not shown then StopDrag(strip) end
     strip:EnableMouse(shown)
     strip.title:SetShown(shown)
     strip.shade:SetShown(shown)
     strip.handle:SetShown(shown)
     strip.handle:EnableMouse(shown)
-    Refresh("target")
 end
 
 -- strip for the target frame
@@ -385,12 +386,11 @@ local function CreateTarget()
     strip.shade = strip:CreateTexture(nil, "BACKGROUND")
     strip.shade:SetAllPoints()
     strip.shade:SetColorTexture(0.45, 0.15, 0.55, 0.35)
-    strip.title = strip:CreateFontString(nil, "OVERLAY", ns.Media.Font("GameFontNormalSmall", Core.DRAG_LABEL_SIZE, true))
-    strip.title:SetText(ns.Text.MISSING_TARGET_DEBUFFS)
-    strip.title:SetPoint("BOTTOM", strip, "TOP", 0, 2)
+    local title
+    strip.title, title = ns.Media.DragLabel(strip, strip, ns.Text.SET_MISSING_TARGET)
     strip.handle = CreateFrame("Frame", nil, strip)
-    strip.handle:SetPoint("TOPLEFT", strip.title, "TOPLEFT", -4, 2)
-    strip.handle:SetPoint("BOTTOMRIGHT", strip.title, "BOTTOMRIGHT", 4, -2)
+    strip.handle:SetPoint("TOPLEFT", title, "TOPLEFT", -4, 2)
+    strip.handle:SetPoint("BOTTOMRIGHT", title, "BOTTOMRIGHT", 4, -2)
     strip.handle:RegisterForDrag("LeftButton")
     strip.handle:SetScript("OnDragStart", StartDrag)
     strip.handle:SetScript("OnDragStop", EndDrag)
@@ -398,7 +398,11 @@ local function CreateTarget()
     strip.handle:Hide()
     ApplyLook(strip)
     UpdatePlacement()
-    table.insert(ns.onPlacing, UpdatePlacement)
+    Refresh("target")
+    table.insert(ns.onPlacing, function()
+        UpdatePlacement()
+        Refresh("target")
+    end)
     table.insert(ns.onRecall, function()
         local defaults = Core.DEFAULTS.timers
         local target, plate = ns.db.timers.targetReminder, ns.db.timers.plateReminder
@@ -474,6 +478,7 @@ local function RefreshAll()
     UpdateReadability()
     for unit, strip in pairs(byUnit) do
         ApplyLook(strip, strip.base)
+        if unit == "target" then UpdatePlacement() end
         if not Game.InCombat() then
             for key, cell in pairs(strip.cells) do
                 if cell == false then strip.cells[key] = nil end
@@ -541,7 +546,6 @@ table.insert(ns.onSphere, function()
                 casts = {}
                 for _, group in pairs(byUnit) do group.flashing = {} end
             end
-            UpdatePlacement()
             RefreshAll()
         elseif not Game.IsSecret(unit) and type(unit) == "string" then
             if event == "NAME_PLATE_UNIT_REMOVED" then

@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -44,6 +45,8 @@ local bar
 local icons = {}
 local active = {}
 local demoOn = {}
+local previewKey, previewMode, previewTicker
+local glowPreviewKeys = {}
 local usual = {}
 local glowSeen = {}
 local reading
@@ -77,7 +80,7 @@ local function CastTime(spellID)
 end
 
 local function PlayAlertSound(proc)
-    if ns.db.alerts.sounds[proc.key] == false then return end
+    if not ns.SoundsOn() or ns.db.alerts.sounds[proc.key] == false then return end
     if proc.sound then
         if type(PlaySoundFile) == "function" then pcall(PlaySoundFile, Core.SoundPath(proc.sound), "Master") end
     elseif type(PlaySound) == "function" then
@@ -145,15 +148,27 @@ local function StartProcTime(proc)
     ShowTime(proc.key, GetTime(), ns.db.alerts.lengths[proc.key] or Core.PROC_LENGTH_GUESS[proc.key])
 end
 
--- if icon can show, switch on, demo or placing
-local function SwitchedOn(key) return ns.db.alerts[key .. "On"] ~= false and ns.db.procBar.on ~= false end
+-- if icon can show on alert bar
+local function IconOn(key) return ns.db.alerts[key .. "On"] ~= false and ns.db.procBar.on ~= false end
+
+local function GlowOn(key)
+    return BY_KEY[key] ~= nil and BY_KEY[key].glows == true
+        and ns.db.alerts.glows.on ~= false and ns.db.alerts.glows[key] ~= false
+end
+
+local function WrackNeeds(key)
+    return key == "shadowTrance" and ns.BarHighlight and ns.BarHighlight.HelperOn and ns.BarHighlight.HelperOn() == true
+end
+
+local function NeedsProc(key) return IconOn(key) or GlowOn(key) or WrackNeeds(key) end
 
 local function RefreshAll()
     if not bar then return end
     for _, proc in ipairs(PROCS) do
         local item = icons[proc.key]
-        item.ready = SwitchedOn(proc.key)
-        item.wanted = (active[proc.key] or demoOn[proc.key] or (ns.placing and not ns.demoData)) == true
+        item.ready = IconOn(proc.key)
+        item.wanted = (active[proc.key] or demoOn[proc.key] or previewKey == proc.key
+            or (ns.placing and not ns.demoData and not previewKey)) == true
     end
     Bars.Layout(bar)
     if ns.BarHighlight then
@@ -161,16 +176,80 @@ local function RefreshAll()
         for _, proc in ipairs(PROCS) do
             local on = (active[proc.key] or demoOn[proc.key]) == true
             procs[proc.key] = on or nil
-            glowing[proc.key] = on and SwitchedOn(proc.key) and (demoOn[proc.key] or not glowSeen[proc.key]) or nil
+            local previewing = glowPreviewKeys[proc.key] == true and GlowOn(proc.key)
+            glowing[proc.key] = (previewing or (on and GlowOn(proc.key) and (demoOn[proc.key] or not glowSeen[proc.key]))) or nil
         end
         ns.BarHighlight.SetProcs(glowing, procs)
     end
 end
 
+local ALERT_PREVIEW_STEPS = {}
+for _, proc in ipairs(PROCS) do
+    ALERT_PREVIEW_STEPS[#ALERT_PREVIEW_STEPS + 1] = {
+        ready = function() return IconOn(proc.key) end,
+        run = function()
+            previewKey = proc.key
+            if not active[previewKey] then ShowTime(previewKey, GetTime(), Core.DEMO.procStep) end
+            PlayAlertSound(proc)
+        end,
+    }
+end
+
+function ProcAlerts.StopPreview()
+    if not previewTicker then return end
+    previewTicker:Cancel()
+    previewTicker = nil
+    previewMode = nil
+    if previewKey and not active[previewKey] then HideTime(previewKey) end
+    previewKey = nil
+    glowPreviewKeys = {}
+    if ns.SacrificeGlow and ns.SacrificeGlow.SetPreview then ns.SacrificeGlow.SetPreview(nil) end
+    RefreshAll()
+end
+
+local function StartPreview(mode, steps)
+    ProcAlerts.StopPreview()
+    previewMode = mode
+    local index = 0
+    local function nextStep()
+        if previewKey and not active[previewKey] then HideTime(previewKey) end
+        previewKey = nil
+        if ns.SacrificeGlow and ns.SacrificeGlow.SetPreview then ns.SacrificeGlow.SetPreview(nil) end
+        repeat index = index + 1 until not steps[index] or steps[index].ready()
+        local step = steps[index]
+        if not step then
+            ProcAlerts.StopPreview()
+            return
+        end
+        step.run()
+        RefreshAll()
+    end
+    previewTicker = C_Timer.NewTicker(Core.DEMO.procStep, nextStep)
+    nextStep()
+end
+
+function ProcAlerts.TestAlerts()
+    ProcAlerts.StopPreview()
+    if not bar or ns.demoData or ns.Game.InCombat() or ns.db.procBar.on == false then return end
+    StartPreview("alerts", ALERT_PREVIEW_STEPS)
+end
+
+function ProcAlerts.TestGlows()
+    ProcAlerts.StopPreview()
+    if not bar or ns.demoData or ns.Game.InCombat() or ns.db.alerts.glows.on == false then return end
+    previewMode = "glows"
+    for _, proc in ipairs(PROCS) do glowPreviewKeys[proc.key] = true end
+    if ns.SacrificeGlow and ns.SacrificeGlow.SetPreview then
+        ns.SacrificeGlow.SetPreview({ sacrifice = true, healthFunnel = true })
+    end
+    RefreshAll()
+    previewTicker = C_Timer.NewTicker(Core.DEMO.glowPreview, ProcAlerts.StopPreview)
+end
+
 local function SetActive(proc, on, silent)
     if (active[proc.key] == true) == on then return end
     active[proc.key] = on or nil
-    if on and not silent and SwitchedOn(proc.key) then PlayAlertSound(proc) end
+    if on and not silent and IconOn(proc.key) then PlayAlertSound(proc) end
     if on and proc.buff then StartProcTime(proc) end
     if not on and not demoOn[proc.key] then HideTime(proc.key) end
     RefreshAll()
@@ -212,12 +291,12 @@ end
 
 function ProcAlerts.Check(silent)
     silent = silent == true
-    if not glowSeen.shadowTrance and SwitchedOn("shadowTrance") then
+    if not glowSeen.shadowTrance and NeedsProc("shadowTrance") then
         local bolt = Known("shadowBolt")
         local boltTime = bolt and CastTime(bolt)
         if boltTime ~= nil then SetActive(BY_KEY.shadowTrance, boltTime == 0, silent) end
     end
-    if not glowSeen.decimation and SwitchedOn("decimation") then
+    if not glowSeen.decimation and NeedsProc("decimation") then
         local fire = Known("soulFire")
         local fireTime = fire and CastTime(fire)
         if fireTime ~= nil then
@@ -231,7 +310,7 @@ end
 local function UpdateReading()
     local needed = false
     for _, proc in ipairs(PROCS) do
-        if proc.glows and not glowSeen[proc.key] and SwitchedOn(proc.key) and Known(proc.spells) then needed = true end
+        if proc.glows and not glowSeen[proc.key] and NeedsProc(proc.key) and Known(proc.spells) then needed = true end
     end
     if needed and not reading and C_Timer and C_Timer.NewTicker then
         reading = C_Timer.NewTicker(CHECK_EVERY, ProcAlerts.Check)
@@ -289,6 +368,8 @@ local function OnEvent(_, event, ...)
         OnGlow(arg1, false)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         OnPlayerSpell(arg3)
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        ProcAlerts.StopPreview()
     elseif event == "PLAYER_REGEN_ENABLED" then
         for _, proc in ipairs(PROCS) do
             if proc.buff and active[proc.key] then TimeFromBuff(proc) end
@@ -308,6 +389,7 @@ local function Create()
     events:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
     events:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:RegisterEvent("PLAYER_REGEN_DISABLED")
     events:SetScript("OnEvent", OnEvent)
     CheckGlowsNow()
     UpdateReading()
@@ -326,6 +408,7 @@ end
 
 table.insert(ns.onDemoData, function(on)
     if not bar then return end
+    ProcAlerts.StopPreview()
     for key in pairs(demoOn) do
         demoOn[key] = nil
         if not active[key] then HideTime(key) end
@@ -335,7 +418,7 @@ table.insert(ns.onDemoData, function(on)
         ns.DemoEvery(Core.DEMO.procStep, function()
             local shown = Core.DemoProcsOn(step, Core.DEMO.procs)
             for _, proc in ipairs(PROCS) do
-                local came = shown[proc.key] and not demoOn[proc.key] and SwitchedOn(proc.key)
+                local came = shown[proc.key] and not demoOn[proc.key] and IconOn(proc.key)
                 local went = demoOn[proc.key] and not shown[proc.key]
                 demoOn[proc.key] = shown[proc.key]
                 if came then
@@ -355,13 +438,17 @@ end)
 -- settings changed, redraw
 function ProcAlerts.Refresh()
     if not bar then return end
+    if (previewMode == "alerts" and ns.db.procBar.on == false)
+        or (previewMode == "glows" and ns.db.alerts.glows.on == false) then
+        ProcAlerts.StopPreview()
+    end
     Bars.Apply(bar)
     RefreshAll()
     UpdateReading()
     ProcAlerts.Check(true)
 end
 
-ProcAlerts.Icons = function() return icons end -- for tests
+ProcAlerts.Icons = function() return icons end  -- for tests
 ProcAlerts.Bar = function() return bar end
 ProcAlerts.Active = function() return active end
 ProcAlerts.DemoOn = function() return demoOn end
@@ -369,4 +456,5 @@ ProcAlerts.GlowSeen = function() return glowSeen end
 ProcAlerts.Reading = function() return reading ~= nil end
 ProcAlerts.Time = function(key) return icons[key] and icons[key].time end
 
-ns.OnSetting({ "procBar.on", "procBar.scale", "procBar.spacing" }, function() ProcAlerts.Refresh() end)
+ns.OnSetting({ "procBar.on", "procBar.scale", "procBar.spacing", "alerts.glows",
+    "timers.barHighlight.on", "timers.wrackHelper.on" }, function() ProcAlerts.Refresh() end)

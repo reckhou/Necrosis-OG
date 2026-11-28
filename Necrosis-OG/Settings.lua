@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -25,12 +26,13 @@ local Window = {}
 ns.SettingsWindow = Window
 
 local WIDTH, HEIGHT = 384, 512
+local SETTINGS_EXTRA_HEIGHT = 68
 local WINDOW_ART = "Interface\\PaperDollInfoFrame\\UI-Character-General-"
 local PAGE_LEFT, PAGE_TOP = 30, -82
 local PAGE_WIDTH, PAGE_HEIGHT = 290, 346
 Window.PAGE_WIDTH, Window.PAGE_HEIGHT = PAGE_WIDTH, PAGE_HEIGHT
-local TAB_GAP = 12
-local TAB_TOP = -44
+local TAB_GAP = 8
+local TAB_TOP = -36
 local TAB_ART = "Interface\\SpellBook\\SpellBook-SkillLineTab"
 local ROW_HEIGHT = 18
 local MIN_ROW_HEIGHT = 16
@@ -44,6 +46,7 @@ local DRAG_TEXT = { 0xF4 / 255, 0xE6 / 255, 0xFF / 255 }
 
 local frame, pageTitle, afterCombatNote
 local CreateLockButton
+local CreateGuideButton
 local pages, tabs = {}, {}
 local controls = {}
 local current = 1
@@ -125,16 +128,28 @@ local function Label(parent, text, x, y, font, maxWidth)
 end
 
 -- check box, get() return setting and set(on) change it
-local function Check(page, x, y, text, get, set, labelWidth)
+local function Check(page, x, y, text, get, set, labelWidth, spellID)
     local box = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
     box:SetSize(26, 26)
     box:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
+    local labelAnchor = box
+    local labelGap = 2
+    local width = labelWidth or (PAGE_WIDTH - x - 30)
+    if spellID then
+        local icon = box:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("LEFT", box, "RIGHT", 2, 0)
+        icon:SetTexture(Plain(C_Spell.GetSpellTexture, spellID))
+        labelAnchor, labelGap = icon, 4
+        width = width - 20
+    end
     box.label = box:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    box.label:SetPoint("LEFT", box, "RIGHT", 2, 0)
+    box.label:SetPoint("LEFT", labelAnchor, "RIGHT", labelGap, 0)
     box.label:SetJustifyH("LEFT")
-    box.label:SetWidth(labelWidth or (PAGE_WIDTH - x - 30))
+    box.label:SetWidth(width)
     box.label:SetText(text)
     box:SetScript("OnClick", function(self) Changed(set)(self:GetChecked() == true) end)
+    ns.Sounds.Check(box)
     function box:Refresh() self:SetChecked(get() == true) end
     controls[#controls + 1] = box
     return box
@@ -144,7 +159,8 @@ end
 local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     local slider = CreateFrame("Slider", nil, page, "UISliderTemplateWithLabels")
     local inset = SLIDER_STEP_BTN + SLIDER_STEP_GAP
-    slider:SetSize(SLIDER_WIDTH - 2 * inset, 16)
+    local width = opts and opts.width or SLIDER_WIDTH
+    slider:SetSize(width - 2 * inset, 16)
     if slider.Text.SetFontObject then slider.Text:SetFontObject("GameFontHighlightSmall") end
     slider:SetPoint("TOPLEFT", page, "TOPLEFT", x + inset, y)
     slider:SetMinMaxValues(low, high)
@@ -152,6 +168,7 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     slider:SetObeyStepOnDrag(true)
     local function Show(value)
         if kind == "percent" then return string.format(Text.SETTINGS_PERCENT_VALUE, value) end
+        if opts and opts.off == value then return Text.SET_MENU_OFF end
         if kind == "times" then return string.format(Text.SETTINGS_TIMES_VALUE, value) end
         return tostring(value)
     end
@@ -159,12 +176,12 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     slider.High:SetText(Show(high))
     local function Title(value)
         slider.Text:SetText(string.format(Text.SETTINGS_VALUE, text, Show(value)))
-        Fit(slider.Text, SLIDER_WIDTH + 30)
+        Fit(slider.Text, opts and opts.width or SLIDER_WIDTH + 30)
     end
     slider:SetScript("OnValueChanged", function(self, value)
         if self.refreshing then return end
         value = Core.RoundToStep(value, step)
-        if opts and opts.snap and not self.stepping and math.abs(value - opts.snap) < (high - low) / SLIDER_WIDTH then
+        if opts and opts.snap and not self.stepping and math.abs(value - opts.snap) < (high - low) / width then
             value = opts.snap
             self.refreshing = true
             self:SetValue(value)
@@ -185,6 +202,7 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
         button:SetPoint(point, slider, relPoint, offset, 0)
         button:SetText(label)
         button:SetScript("OnClick", function() Step(delta) end)
+        ns.Sounds.Button(button)
         return button
     end
     slider.minus = StepButton("-", -1, "RIGHT", "LEFT", -SLIDER_STEP_GAP)
@@ -195,6 +213,12 @@ local function Slider(page, x, y, text, low, high, step, get, set, kind, opts)
     end
     function slider:Refresh()
         self.refreshing = true
+        if opts and opts.bounds then
+            low, high = opts.bounds()
+            self:SetMinMaxValues(low, high)
+            self.Low:SetText(Show(low))
+            self.High:SetText(Show(high))
+        end
         self:SetValue(get())
         self.refreshing = false
         Title(get())
@@ -218,12 +242,13 @@ local function GreyedBy(widget, on)
     return widget
 end
 
-local function Dropdown(page, x, y, text, options, get, set, width, maxRows)
-    local label = text and Label(page, text, x, y, nil, width or 150)
+local function Dropdown(page, x, y, text, options, get, set, width, maxRows, inlineLabelX)
+    local label = text and Label(page, text, inlineLabelX or x, inlineLabelX and y - 5 or y,
+        nil, inlineLabelX and x - inlineLabelX - 8 or width or 150)
     local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
     dropdown:SetWidth(width or 150)
     dropdown.pageLabel = label
-    dropdown:SetPoint("TOPLEFT", page, "TOPLEFT", x, text and y - 14 or y)
+    dropdown:SetPoint("TOPLEFT", page, "TOPLEFT", x, text and not inlineLabelX and y - 14 or y)
     dropdown:SetupMenu(function(_, root)
         local choices = type(options) == "function" and options() or options
         if not maxRows or #choices > maxRows then
@@ -239,6 +264,8 @@ local function Dropdown(page, x, y, text, options, get, set, width, maxRows)
     return dropdown
 end
 
+Window.Dropdown = Dropdown
+
 local function PushButton(page, x, y, text, onClick, width, enabled)
     local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     button:SetSize(width or 170, 22)
@@ -246,6 +273,7 @@ local function PushButton(page, x, y, text, onClick, width, enabled)
     button:SetText(text)
     FitButton(button)
     button:SetScript("OnClick", function() Changed(onClick)() end)
+    ns.Sounds.Button(button)
     if enabled then
         function button:Refresh() self:SetEnabled(enabled() == true) end
         controls[#controls + 1] = button
@@ -352,6 +380,7 @@ local function OrderList(page, x, y, width, height, source)
                 RefreshAll()
             end
         end)
+        ns.Sounds.Button(row)
         row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
         row:GetHighlightTexture():SetBlendMode("ADD")
         row.index = i
@@ -361,6 +390,7 @@ local function OrderList(page, x, y, width, height, source)
         row.dragBand:Hide()
         row.y = (i - 1) * rowHeight
         row:SetScript("OnDragStart", function(self)
+            if source.canDrag and not source.canDrag() then return end
             list.from, list.target = self.index, self.index
             self.dragBand:Show()
             self.name:SetTextColor(DRAG_TEXT[1], DRAG_TEXT[2], DRAG_TEXT[3])
@@ -377,7 +407,7 @@ local function OrderList(page, x, y, width, height, source)
             Follow()
             local target = list.target
             list.from, list.target = nil, nil
-            if target and target ~= from and scroll:IsMouseOver() then
+            if target and target ~= from and scroll:IsMouseOver() and (not source.canDrag or source.canDrag()) then
                 local heights = {}
                 for place, other in ipairs(list.rows) do heights[place] = other.y end
                 source.move(from, target)
@@ -440,8 +470,7 @@ local function MenuSource()
 end
 
 local SLOTS = {
-    firestone = { "SET_BUTTON_FIRESTONE", "FirestoneButton-01", "FirestoneButton-02" },
-    spellstone = { "SET_BUTTON_SPELLSTONE", "SpellstoneButton-01", "SpellstoneButton-02" },
+    weaponStone = { "SET_BUTTON_WEAPON_STONE", "SpellstoneButton-01", "SpellstoneButton-02" },
     healthstone = { "SET_BUTTON_HEALTHSTONE", "HealthstoneButton-01", "HealthstoneButton-02" },
     soulstone = { "SET_BUTTON_SOULSTONE", "SoulstoneButton-01", "SoulstoneButton-02" },
     utility = { "SET_BUTTON_UTILITY", "BuffMenuButton-01" },
@@ -454,6 +483,7 @@ local SLOTS = {
 local function RingSource()
     return {
         rows = #Core.BUTTON_SLOTS,
+        canDrag = function() return not ns.db.buttons.free end,
         entries = function()
             local entries = {}
             for i, slot in ipairs(Core.OrderSlots(ns.db.buttons.ringOrder)) do
@@ -531,11 +561,13 @@ local function InfoIcon(page, after, title, describe)
     icon.texture:SetAllPoints()
     icon.texture:SetTexture("Interface\\FriendsFrame\\InformationIcon")
     ns.Tips.Attach(icon, function(tooltip)
-        ns.Tips.Title(tooltip, title)
+        if title then ns.Tips.Title(tooltip, title) end
         describe(tooltip)
     end, "ANCHOR_RIGHT", true)
     return icon
 end
+
+Window.InfoIcon = InfoIcon
 
 local MACRO_GAP = 28
 
@@ -549,6 +581,7 @@ local function MacroIcon(page, x, y, key)
     icon:RegisterForDrag("LeftButton")
     icon:SetScript("OnDragStart", function() ns.Buttons.PickupFocusMacro(key) end)
     icon:SetScript("OnClick", function() ns.Buttons.PickupFocusMacro(key) end)
+    ns.Sounds.Button(icon)
     local spells = Core.SPELLS[Core.STONE_MACRO_SPELLS[key] or key]
     ns.Tips.Attach(icon, function(tooltip)
         ns.Tips.Title(tooltip, (key == "hearthstone" and Text.HEARTHSTONE) or (key == "healthstone" and Text.BIND_HEALTHSTONE)
@@ -572,7 +605,7 @@ local function MacroIcon(page, x, y, key)
 end
 
 local function Heading(page, text, y, maxWidth)
-    return Label(page, Core.Gradient(text, Core.GRADIENT_HEADING), 0, y, "SystemFont_Shadow_Small_Outline", maxWidth)
+    return Label(page, Core.Gradient(text, Core.GRADIENT_HEADING), 0, y, "GameFontNormal", maxWidth)
 end
 
 local function GreyLabel(label, on)
@@ -580,122 +613,110 @@ local function GreyLabel(label, on)
     return label
 end
 
-local CONFIRM_DIALOGS = { positions = "NECROSIS_OG_RESET_POSITIONS", settings = "NECROSIS_OG_RESET_ALL",
-    speech = "NECROSIS_OG_RESTORE_SPEECH", language = "NECROSIS_OG_CHANGE_LANGUAGE" }
+local CONFIRM_TITLES = { positions = "SET_RESET_POSITIONS", settings = "SET_RESET_ALL", speech = "SET_SPEECH_RESTORE",
+    deleteSpeech = "SET_SPEECH_DELETE", language = "SET_LANGUAGE" }
 
-local confirmed = {}
+local CONFIRM_RELOADS = { settings = true, language = true }
+
+local confirmed, confirmBoxes = {}, {}
 
 -- ask yes or no before do action
 local function Confirm(which, text, yes, onAccept, arg)
-    if type(StaticPopupDialogs) ~= "table" or type(StaticPopup_Show) ~= "function" then return end
-    local name = CONFIRM_DIALOGS[which]
+    local box = confirmBoxes[which]
+    if not box then
+        local reloads = CONFIRM_RELOADS[which]
+        box = ns.Dialog.New({ name = "NecrosisOGConfirm" .. which, reload = reloads })
+        local function Close() box.frame:Hide() end
+        local function Accept()
+            if confirmed[which] then confirmed[which]() end
+        end
+        if reloads then
+            box.yes:SetScript("PreClick", Accept)
+            local function CloseQuietly()
+                ns.Sounds.Hush(box.frame)
+                Close()
+            end
+            box.yes:SetScript("PostClick", CloseQuietly)
+            box.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+            box.frame:SetScript("OnEvent", CloseQuietly)
+        else
+            box.yes:SetScript("OnClick", function()
+                Close()
+                Accept()
+            end)
+        end
+        box.no:SetScript("OnClick", Close)
+        confirmBoxes[which] = box
+    end
     confirmed[which] = onAccept
-    StaticPopupDialogs[name] = StaticPopupDialogs[name] or {
-        text = text,
-        button1 = yes,
-        button2 = Text.SET_RESET_NO,
-        OnAccept = function() if confirmed[which] then confirmed[which]() end end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        showAlert = true,
-    }
-    StaticPopup_Show(name, arg)
+    box.SetTitle(Text[CONFIRM_TITLES[which]])
+    box.text:SetText(arg and string.format(text, arg) or text)
+    box.yes:SetText(yes)
+    box.no:SetText(Text.SET_RESET_NO)
+    box.Fit()
+    box.frame:Raise()
+    box.frame:Show()
 end
+
+function Window.ConfirmBox(which) return confirmBoxes[which] end
 
 -- reset all setting after yes
 function Window.ConfirmReset()
+    if InCombat() then return ns.Print(Text.RESET_IN_COMBAT) end
     Confirm("settings", Text.SET_RESET_CONFIRM, Text.SET_RESET_YES, function() ns.Sphere.ResetAll() end)
 end
 
 function Window.ConfirmLanguage()
-    Confirm("language", Text.SET_LANGUAGE_RELOAD_CONFIRM, Text.SET_LANGUAGE_RELOAD_YES, function()
-        local reload = (C_UI and C_UI.Reload) or ReloadUI
-        if reload then reload() end
-    end)
+    if InCombat() then return ns.Print(Text.LANGUAGE_IN_COMBAT) end
+    Confirm("language", Text.SET_LANGUAGE_RELOAD_CONFIRM, Text.SET_LANGUAGE_RELOAD_YES)
 end
 
 function Window.ConfirmPositions()
     Confirm("positions", Text.SET_RESET_POSITIONS_CONFIRM, Text.SET_RESET_YES, function() ns.Sphere.ResetPositions() end)
 end
 
-local function GeneralPage(page)
-    Heading(page, Text.SET_HEAD_FOCUS, 0)
-    Check(page, 0, -16, Text.SET_AUTO_FOCUS, function() return db().buttons.autoFocus == true end, function(on)
-        ns.SetSetting("buttons.autoFocus", on)
-    end)
-    local macroHead = Heading(page, Text.SET_FOCUS_MACROS, -48)
-    InfoIcon(page, macroHead, Text.SET_FOCUS_MACROS, function(tooltip)
-        ns.Tips.Line(tooltip, Text.TIP_MACROS_BARS)
-        ns.Tips.Line(tooltip, Text.TIP_MACROS_KEYS)
-    end)
-    local petIcons = {}
-    for i, key in ipairs(Core.MACRO_ROW) do
-        local icon = MacroIcon(page, 4 + MACRO_GAP * (i - 1), -64, key)
-        if Core.PET_SPELLS[key] then petIcons[#petIcons + 1] = icon end
-    end
-    table.insert(ns.onSpellsChanged, function()
-        for _, icon in ipairs(petIcons) do icon:Refresh() end
-    end)
+local shardLimitSlider
 
-    Heading(page, Text.SET_HEAD_DISPLAY, -106)
-    local animOn = function() return db().animation.on ~= false end
-    Check(page, 0, -122, Text.SET_ANIMATE, animOn, function(on) ns.SetAnimationsOn(on) end)
-    GreyedBy(Slider(page, SLIDER_RIGHT, -136, Text.SET_ANIM_SPEED, Core.ANIM_SPEED_MIN, Core.ANIM_SPEED_MAX,
-        Core.ANIM_SPEED_STEP, function() return Core.ClampAnimSpeed(db().animation.speed) end,
-        function(value) ns.SetAnimationSpeed(value) end, "times"), animOn)
-    Check(page, 0, -150, Text.SET_TOOLTIPS, function() return db().tooltips ~= false end,
-        function(on) ns.SetSetting("tooltips", on) end)
-    Dropdown(page, 0, -178, Text.SET_FONT, ns.Media.FontChoices, function() return db().font end,
-        function(value) ns.SetSetting("font", value) end, 138)
-    local sizes = {}
-    for i, size in ipairs(Core.TEXT_SIZES) do sizes[i] = { size, string.format(Text.SETTINGS_PERCENT_VALUE, size) } end
-    Dropdown(page, RIGHT_COLUMN, -178, Text.SET_TEXT_SIZE, sizes, function() return Core.TextSizeOrDefault(db().textSize) end,
-        function(value) ns.SetSetting("textSize", value) end, 138)
-    Dropdown(page, 0, -218, Text.SET_BAR_TEXTURE, ns.Media.BarChoices, function() return db().barTexture end,
-        function(value) ns.SetSetting("barTexture", value) end, 138)
-    local windowSizes = {}
-    for i, size in ipairs(Core.WINDOW_SCALES) do
-        windowSizes[i] = { size, string.format(Text.SETTINGS_PERCENT_VALUE, size) }
-    end
-    Dropdown(page, RIGHT_COLUMN, -218, Text.SET_WINDOW_SIZE, windowSizes,
-        function() return Core.WindowScaleOrDefault(db().windowScale) end,
-        function(value) ns.SetSetting("windowScale", value) end, 138)
-
-    Heading(page, Text.SET_HEAD_TOOLS, -(PAGE_HEIGHT - 82))
-    local demo = PushButton(page, 4, -(PAGE_HEIGHT - 64), Text.SET_DEMO_START, function() ns.SetDemo(not ns.demoData) end,
-        138)
-    function demo:Refresh() self:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.SET_DEMO_START) end
-    controls[#controls + 1] = demo
-    Dropdown(page, RIGHT_COLUMN, -(PAGE_HEIGHT - 64), nil, function()
-        local auto = string.format(Text.SET_LANGUAGE_AUTO, Core.LanguageName(ns.clientLanguage) or Core.LanguageName("enUS"))
-        return Core.LanguageChoices(ns.Locales, auto)
-    end, function() return Core.LanguageOrDefault(db().language, ns.Locales) end, function(value)
-        if value == db().language then return end
-        ns.SetSetting("language", value)
-        Window.ConfirmLanguage()
-    end, 138)
-    PushButton(page, 4, -(PAGE_HEIGHT - 36), Text.SET_RESET_POSITIONS, function() Window.ConfirmPositions() end,
-        138)
-    PushButton(page, RIGHT_COLUMN - 2, -(PAGE_HEIGHT - 36), Text.SET_RESET_ALL, function() Window.ConfirmReset() end,
-        138)
+function Window.RefreshShardLimit()
+    if shardLimitSlider and frame:IsShown() then shardLimitSlider:Refresh() end
 end
 
 local function SpherePage(page)
-    Slider(page, 5, -16, Text.SET_SPHERE_SCALE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
+    Heading(page, Text.UNLOCK_LOOK, 0)
+    Slider(page, 5, -24, Text.SET_SPHERE_SCALE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
         function() return Core.ClampSphereScale(db().sphere.scale) end, function(value) ns.Sphere.SetScale(value) end, "percent")
-    Slider(page, SLIDER_RIGHT, -16, Text.SET_SHARD_LIMIT, Core.SHARD_LIMIT_MIN, Core.SHARD_LIMIT_MAX, 1,
-        function() return Core.ClampShardLimit(db().buttons.shardLimit) end, function(value) ns.Shards.SetLimit(value) end)
-    Check(page, 0, -66, Text.SET_SHOW_COUNT, function() return db().sphere.showCount end, function(on)
-        ns.SetSetting("sphere.showCount", on)
-    end, SLIDER_RIGHT - 30)
+    local skins = {}
+    for i, skin in ipairs(Core.SKIN_LIST) do skins[i] = { skin, Text["SET_SKIN_" .. string.upper(skin)] } end
+    Dropdown(page, RIGHT_COLUMN, -12, Text.SET_SKIN, skins,
+        function() return Core.SkinOrDefault(db().skin) end, function(value) ns.SetSetting("skin", value) end, 138)
+
+    Heading(page, Text.SET_BUTTON_SHARDS, -58)
+    Check(page, 0, -74, Text.SET_SHOW_COUNT, function() return db().sphere.showCount end,
+        function(on) ns.SetSetting("sphere.showCount", on) end, SLIDER_RIGHT - 30)
     local lowShards = Section(page, function() return db().sphere.showCount == true end)
-    Slider(lowShards, SLIDER_RIGHT, -74, Text.SET_LOW_SHARDS, 0, Core.SHARD_COUNT_MAX, 1,
-        function() return Core.ClampThreshold(db().sphere.lowShards) end, function(value)
-            ns.SetSetting("sphere.lowShards", value)
-        end)
-    Check(page, 0, -102, Text.SET_SHOW_THREAT, function() return db().sphere.showThreat end, function(on)
-        ns.SetSetting("sphere.showThreat", on)
+    Slider(lowShards, SLIDER_RIGHT, -82, Text.SET_LOW_SHARDS, 0, Core.SHARD_COUNT_MAX, 1,
+        function() return Core.ClampThreshold(db().sphere.lowShards) end,
+        function(value) ns.SetSetting("sphere.lowShards", value) end)
+    local low, high = ns.Shards.LimitBounds()
+    Check(page, 0, -116, Text.SET_AUTO_DESTROY_SHARDS, function() return db().buttons.autoDestroy end,
+        function(on) ns.SetSetting("buttons.autoDestroy", on) end, 110)
+    shardLimitSlider = Slider(page, SLIDER_RIGHT, -128, Text.SET_SHARD_LIMIT, low, high, 1,
+        ns.Shards.Limit, ns.Shards.SetLimit, nil, { bounds = ns.Shards.LimitBounds })
+    local orbs = GreyedBy(Check(page, 0, -145, Text.SET_SOUL_ORBS_ANIMATION,
+        function() return db().sphere.soulOrbsAnimation end,
+        function(on) ns.SetSetting("sphere.soulOrbsAnimation", on) end, 116),
+        function() return db().animation.on ~= false end)
+    InfoIcon(page, orbs.label, Text.SET_SOUL_ORBS_ANIMATION, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_ORBS_GAIN)
+    end)
+
+    Heading(page, Text.SET_SPHERE_THREAT, -182)
+    Check(page, 0, -198, Text.SET_SHOW_THREAT, function() return db().sphere.showThreat end,
+        function(on) ns.SetSetting("sphere.showThreat", on) end)
+
+    local clicks = Heading(page, Text.SET_SPHERE_CLICKS, -236)
+    InfoIcon(page, clicks, Text.SET_SPHERE_CLICKS, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_SPHERE_CLICKS)
     end)
     local function ClickChoices()
         local choices = { { "none", Text.SET_CLICK_NONE }, { "bags", Text.SET_CLICK_BAGS } }
@@ -708,23 +729,19 @@ local function SpherePage(page)
     end
     for i, click in ipairs(Core.SPHERE_CLICKS) do
         local column, row = (i - 1) % 2, math.floor((i - 1) / 2)
-        Dropdown(page, column * RIGHT_COLUMN, -136 - row * 50, Text[click.text], ClickChoices,
+        Dropdown(page, column * RIGHT_COLUMN, -255 - row * 46, Text[click.text], ClickChoices,
             function() return Core.SphereClick(click.key, db().sphere.clicks[click.key]) end, function(value)
                 ns.SetSetting("sphere.clicks." .. click.key, value)
             end, 138)
     end
-    local skins = {}
-    for i, skin in ipairs(Core.SKIN_LIST) do skins[i] = { skin, Text["SET_SKIN_" .. string.upper(skin)] } end
-    Dropdown(page, 0, -236, Text.SET_SKIN, skins, function() return Core.SkinOrDefault(db().skin) end, function(value)
-        ns.SetSetting("skin", value)
-    end, 138)
 end
 
 local function ButtonsPage(page)
-    Check(page, 0, 0, Text.SET_BUTTONS_RING, function() return not db().buttons.free end,
-        function(on) ns.Buttons.SetFree(not on) end)
+    Dropdown(page, 0, 0, Text.SET_BUTTONS_LAYOUT,
+        { { false, Text.SET_BUTTONS_LAYOUT_RING }, { true, Text.SET_BUTTONS_LAYOUT_FREE } },
+        function() return db().buttons.free end, ns.Buttons.SetFree, 138)
 
-    Slider(page, SLIDER_RIGHT, -88, Text.SET_SIZE, Core.BUTTON_SIZE_MIN, Core.BUTTON_SIZE_MAX, Core.BUTTON_SIZE_STEP,
+    Slider(page, SLIDER_RIGHT, -17, Text.SET_SIZE, Core.BUTTON_SIZE_MIN, Core.BUTTON_SIZE_MAX, Core.BUTTON_SIZE_STEP,
         function() return Core.ClampButtonSize(db().sphere.buttonSize) end, function(value)
             ns.SetSetting("sphere.buttonSize", value)
         end, "times")
@@ -735,78 +752,80 @@ local function ButtonsPage(page)
             ns.SetSetting("sphere." .. key, value)
         end, kind, { snap = Core.DEFAULTS.sphere[key], wheel = true })
     end
-    RingSlider(5, -40, Text.SET_ROTATION, Core.ROTATION_MIN, Core.ROTATION_MAX, Core.ROTATION_STEP, "rotation",
+    RingSlider(5, -61, Text.SET_ROTATION, Core.ROTATION_MIN, Core.ROTATION_MAX, Core.ROTATION_STEP, "rotation",
         Core.ClampRotation)
-    RingSlider(SLIDER_RIGHT, -40, Text.SET_SPACING, Core.SPACING_MIN, Core.SPACING_MAX, Core.SPACING_STEP, "spacing",
+    RingSlider(SLIDER_RIGHT, -61, Text.SET_SPACING, Core.SPACING_MIN, Core.SPACING_MAX, Core.SPACING_STEP, "spacing",
         Core.ClampSpacing, "times")
-    RingSlider(5, -88, Text.SET_DISTANCE, Core.DISTANCE_MIN, Core.DISTANCE_MAX, Core.DISTANCE_STEP, "distance",
+    RingSlider(5, -108, Text.SET_DISTANCE, Core.DISTANCE_MIN, Core.DISTANCE_MAX, Core.DISTANCE_STEP, "distance",
         Core.ClampDistance, "times")
-    Heading(ring, Text.SET_ORDER_HELP, -130)
-
     local free = Section(page, function() return db().buttons.free end)
-    local hint = Label(free, Text.SET_BUTTONS_FREE_HINT, 0, -36, "GameFontHighlightSmall", false)
-    hint:SetWidth(PAGE_WIDTH)
-    PushButton(free, 4, -85, Text.SET_BUTTONS_RESET, function() ns.Buttons.ResetPlaces() end, 138)
-    Label(free, Text.SET_BUTTONS_SWITCH, 0, -130, "GameFontHighlightSmall", false):SetWidth(PAGE_WIDTH)
+    PushButton(free, 4, -54, Text.SET_BUTTONS_RESET, ns.Buttons.ResetPlaces, 138)
 
-    OrderList(page, 0, -162, PAGE_WIDTH - 10, #Core.BUTTON_SLOTS * ROW_HEIGHT, RingSource())
+    local function AutoHideOn() return db().sphere.autoHide.on == true end
+    Check(page, -2, -140, Text.SET_AUTO_HIDE, AutoHideOn,
+        function(on) ns.SetSetting("sphere.autoHide.on", on) end, 148)
+    GreyedBy(Slider(page, 178, -145, Text.SET_AUTO_HIDE_FADED,
+        Core.FADED_ALPHA_MIN * 100, Core.FADED_ALPHA_MAX * 100, Core.FADED_ALPHA_STEP * 100,
+        function()
+            return math.floor(Core.ClampFadedAlpha(db().sphere.autoHide.fadedAlpha, db().buttons.free) * 100 + 0.5)
+        end,
+        function(value)
+            ns.SetSetting("sphere.autoHide.fadedAlpha", Core.ClampFadedAlpha(value / 100, db().buttons.free))
+        end,
+        "percent", { width = 112, bounds = function()
+            return Core.FadedAlphaMin(db().buttons.free) * 100, Core.FADED_ALPHA_MAX * 100
+        end }), AutoHideOn)
+    GreyedBy(Check(page, 14, -172, Text.SET_AUTO_HIDE_COMBAT,
+        function() return db().sphere.autoHide.combatShow ~= false end,
+        function(on) ns.SetSetting("sphere.autoHide.combatShow", on) end), AutoHideOn)
+
+    OrderList(page, 0, -236, PAGE_WIDTH - 10, #Core.BUTTON_SLOTS * ROW_HEIGHT, RingSource())
+    local listHeading = Heading(page, Text.SETTINGS_TAB_BUTTONS, -214)
+    InfoIcon(page, listHeading, Text.SETTINGS_TAB_BUTTONS, function(tooltip)
+        if db().buttons.free then
+            ns.Tips.Line(tooltip, Text.TIP_BUTTONS_FREE)
+        ns.Tips.Line(tooltip, " ")
+            ns.Tips.Line(tooltip, Text.SET_BUTTONS_SWITCH)
+        else
+            ns.Tips.Line(tooltip, Text.SET_ORDER_HELP)
+        end
+    end)
 end
 
 local function MenusPage(page)
     Check(page, 0, 0, Text.SET_MENU_CLOSES, function() return db().buttons.menuCloses == true end, function(on)
         ns.SetSetting("buttons.menuCloses", on)
     end)
-    local choices = {}
-    for i, menu in ipairs(MENUS) do choices[i] = { menu.key, Text[menu.titleKey] } end
-    Dropdown(page, 0, -28, Text.SET_MENU_CHOOSE, choices, function() return selectedMenu end,
-        function(value) selectedMenu = value end, 138)
-    Dropdown(page, RIGHT_COLUMN, -28, Text.SET_MENU_DIRECTION, DIRECTIONS,
+    local selectorWidth = 94
+    for i, menu in ipairs(MENUS) do
+        local key = menu.key
+        local button = PushButton(page, (i - 1) * 98, -29, Text[menu.titleKey], function()
+            selectedMenu = key
+        end, selectorWidth)
+        function button:Refresh()
+            if selectedMenu == key then self:LockHighlight() else self:UnlockHighlight() end
+        end
+        controls[#controls + 1] = button
+    end
+    Dropdown(page, 0, -67, Text.SET_MENU_DIRECTION, DIRECTIONS,
         function() return Core.MenuDirection(selectedMenu, db().buttons.menuDirection[selectedMenu]) end, function(value)
             ns.SetSetting("buttons.menuDirection." .. selectedMenu, value)
-        end, 138)
+        end, 90)
     local function ShiftSlider(x, text, axis)
-        Slider(page, x, -84, text, Core.MENU_SHIFT_MIN, Core.MENU_SHIFT_MAX, Core.MENU_SHIFT_STEP, function()
+        Slider(page, x, -82, text, Core.MENU_SHIFT_MIN, Core.MENU_SHIFT_MAX, Core.MENU_SHIFT_STEP, function()
             local shift = db().buttons.menuOffset and db().buttons.menuOffset[selectedMenu]
             return select(axis, Core.MenuShift(shift))
         end, function(value)
             ns.Buttons.SetMenuShift(selectedMenu, axis, value)
-        end, nil, { snap = 0 })
+        end, nil, { snap = 0, width = 86 })
     end
-    ShiftSlider(5, Text.SET_MENU_SHIFT_X, 1)
-    ShiftSlider(SLIDER_RIGHT, Text.SET_MENU_SHIFT_Y, 2)
-    Heading(page, Text.SET_ORDER_HELP, -114)
-    OrderList(page, 0, -128, PAGE_WIDTH - 10, PAGE_HEIGHT - 128, MenuSource())
-end
-
-local SWITCH_STEP = RIGHT_COLUMN
-
-local function KeyName(key) return SpellName(Core.SPELLS[key][1]) or key end
-
-local function ControlsPage(page)
-    local timers = function() return db().timers end
-
-    local focusOn = function() return timers().focusOn ~= false end
-    Heading(page, Text.SET_FOCUS_ON, 0)
-    Check(page, 0, -16, Text.SET_SHOW, focusOn, function(on)
-        ns.SetSetting("timers.focusOn", on)
+    ShiftSlider(100, Text.SET_MENU_SHIFT_X, 1)
+    ShiftSlider(198, Text.SET_MENU_SHIFT_Y, 2)
+    local spells = Heading(page, Text.SET_MENU_SPELLS, -129)
+    InfoIcon(page, spells, Text.SET_MENU_SPELLS, function(tooltip)
+        ns.Tips.Line(tooltip, Text.SET_ORDER_HELP)
     end)
-    GreyedBy(Slider(page, SLIDER_RIGHT, -30, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
-        function() return Core.TimerScale(timers(), "focus") end, function(value) ns.Timers.SetScale("focus", value) end,
-        "percent"), focusOn)
-    GreyLabel(Heading(page, Text.SET_FOCUS_ICONS, -62), focusOn)
-    for i, key in ipairs(Core.FOCUS_SWITCHES) do
-        local name = KeyName(key)
-        if key == "fear" then name = string.format(Text.SET_FOCUS_FEAR, name) end
-        GreyedBy(Check(page, ((i - 1) % 2) * SWITCH_STEP, -74 - math.floor((i - 1) / 2) * 24, name,
-            function() return timers().focusOff[key] ~= true end, function(on)
-                ns.SetSetting("timers.focusOff." .. key, (not on) or nil)
-            end), focusOn)
-    end
-
-    Heading(page, Text.SET_CONTROL_ON, -130)
-    Check(page, 0, -146, Text.SET_SHOW, function() return timers().controlOn ~= false end, function(on)
-        ns.SetSetting("timers.controlOn", on)
-    end)
+    OrderList(page, 0, -151, PAGE_WIDTH - 10, PAGE_HEIGHT + SETTINGS_EXTRA_HEIGHT - 151, MenuSource())
 end
 
 local SHOW_X = 200
@@ -815,13 +834,15 @@ local HEAD_ROW = 28
 local SECTION_SPACE = 8
 local SLIDER_TOP = -14
 local SECTION_ROW = 46
-local DEBUFFS_SCROLL_RISE = 8
+local DEBUFFS_BOTTOM_INSET = 24
 local TRACK_TOP = -2
-local TRACK_HEIGHT = 32 - TRACK_TOP + #Core.ENEMY_SLOTS * ROW_HEIGHT
+local TRACK_HEIGHT = 22 - TRACK_TOP + #Core.ENEMY_SLOTS * ROW_HEIGHT
 
 local SCROLL_BAR_X = 4
 
 local function FamilyKnown(id) return ns.Buttons.IsKnown(id) or Plain(IsPlayerSpell, id) == true end
+
+local function KeyName(key) return SpellName(Core.SPELLS[key][1]) or key end
 
 local function FamilyName(slot)
     if slot.key == "bane" then return Text.SET_ROW_BANE end
@@ -862,16 +883,51 @@ local function FamilySource()
     }
 end
 
-local function NewSection(content, title, on, path, bodyHeight)
+local function NewSection(content, title, on, path, bodyHeight, switchLabel)
     local section = CreateFrame("Frame", nil, content)
     section:SetWidth(PAGE_WIDTH)
-    Heading(section, title, HEAD_TOP, SHOW_X - 4)
-    Check(section, SHOW_X, HEAD_TOP + 7, Text.SET_SHOW, on, function(value) ns.SetSetting(path, value) end, 60)
+    section.heading = Heading(section, title, HEAD_TOP, SHOW_X - 4)
+    Check(section, SHOW_X, HEAD_TOP + 7, switchLabel or Text.SET_SHOW, on, function(value) ns.SetSetting(path, value) end, 60)
     local body = CreateFrame("Frame", nil, section)
     body:SetPoint("TOPLEFT", section, "TOPLEFT", 0, -HEAD_ROW)
     body:SetSize(PAGE_WIDTH, bodyHeight)
     section.body, section.on, section.bodyHeight = body, on, bodyHeight
     return section
+end
+
+local function ControlsPage(page)
+    local timers = function() return db().timers end
+    local focus = NewSection(page, Text.SET_FOCUS_ON, function() return timers().focusOn ~= false end,
+        "timers.focusOn", 98)
+    focus:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+    InfoIcon(focus, focus.heading, Text.SET_FOCUS_ON, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_CONTROL_FOCUS)
+    end)
+    Slider(focus.body, 5, SLIDER_TOP, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
+        function() return Core.TimerScale(timers(), "focus") end,
+        function(value) ns.Timers.SetScale("focus", value) end, "percent")
+    for i, key in ipairs(Core.FOCUS_SWITCHES) do
+        local name = KeyName(key)
+        if key == "fear" then name = string.format(Text.SET_FOCUS_FEAR, name) end
+        Check(focus.body, ((i - 1) % 2) * RIGHT_COLUMN, -42 - math.floor((i - 1) / 2) * 26, name,
+            function() return timers().focusOff[key] ~= true end,
+            function(on) ns.SetSetting("timers.focusOff." .. key, (not on) or nil) end, 118,
+            Core.SPELLS[key][1])
+    end
+
+    local control = NewSection(page, Text.SET_CONTROL_ON, function() return timers().controlOn ~= false end,
+        "timers.controlOn", 0)
+    control:SetPoint("TOPLEFT", focus, "BOTTOMLEFT", 0, -SECTION_SPACE)
+    control:SetHeight(HEAD_ROW)
+    control.body:Hide()
+    InfoIcon(control, control.heading, Text.SET_CONTROL_ON, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_CONTROL_TIMERS)
+    end)
+    controls[#controls + 1] = { Refresh = function()
+        local on = focus.on()
+        focus.body:SetShown(on)
+        focus:SetHeight(HEAD_ROW + (on and focus.bodyHeight or 0))
+    end }
 end
 
 local function OffsetSliders(body, y, low, high, get, set)
@@ -902,10 +958,12 @@ end
 -- wrack switch and help below the glow switch
 local function WrackRotationOption(body, glowOn)
     local function KnowsWrack() return Core.HighestKnown(Core.SPELLS.wrack, FamilyKnown) ~= nil end
-    local box = GreyedBy(Check(body, 4, 0, Text.SET_SMART_WRACK_ROTATION,
+    local row = CreateFrame("Frame", nil, body)
+    row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    row:SetSize(PAGE_WIDTH, 26)
+    local box = GreyedBy(Check(row, 4, 0, Text.SET_SMART_WRACK_ROTATION,
         function() return db().timers.wrackHelper.on ~= false end,
-        function(on) ns.SetSetting("timers.wrackHelper.on", on) end, 136),
-        function() return glowOn() and KnowsWrack() end)
+        function(on) ns.SetSetting("timers.wrackHelper.on", on) end, 136), KnowsWrack)
     local spellIcon = box:CreateTexture(nil, "ARTWORK")
     spellIcon:SetSize(16, 16)
     spellIcon:SetPoint("LEFT", box, "RIGHT", 2, 0)
@@ -921,55 +979,211 @@ local function WrackRotationOption(body, glowOn)
     end
     GameTooltip:HookScript("OnTooltipCleared", ResetWidth)
     GameTooltip:HookScript("OnHide", ResetWidth)
-    local info = InfoIcon(body, box.label, Text.SET_SMART_WRACK_ROTATION, function(tooltip)
+    local info = InfoIcon(row, box.label, Text.SET_SMART_WRACK_ROTATION, function(tooltip)
         local wrack = SpellName(Core.SPELLS.wrack[1]) or "?"
         local bolt = SpellName(Core.SPELLS.shadowBolt[1]) or "?"
+        ns.Tips.Line(tooltip, Text.HELPER_SOURCE)
+        ns.Tips.Line(tooltip, " ")
         ns.Tips.Line(tooltip, Text.HELPER_INTRO)
         ns.Tips.Line(tooltip, " ")
         ns.Tips.Line(tooltip, "1. " .. string.format(Text.HELPER_KEEP_DOTS, wrack))
+        ns.Tips.Line(tooltip, " ")
         ns.Tips.Line(tooltip, "2. " .. string.format(Text.HELPER_INSTANT_BOLT, bolt))
         ns.Tips.Line(tooltip, " ")
         ns.Tips.Line(tooltip, string.format(Text.HELPER_REFRESH, wrack))
         ns.Tips.Line(tooltip, " ")
         ns.Tips.Line(tooltip, string.format(Text.HELPER_CLIPPING, wrack, bolt))
-        if not KnowsWrack() then ns.Tips.Note(tooltip, Text.HELPER_UNKNOWN_NOTE) end
-        if not glowOn() then ns.Tips.Note(tooltip, Text.HELPER_GLOW_NOTE) end
+        local known, on = KnowsWrack(), glowOn()
+        if not known or not on then
+            ns.Tips.Line(tooltip, " ")
+            if not known then ns.Tips.Note(tooltip, Text.HELPER_UNKNOWN_NOTE) end
+            if not on then ns.Tips.Note(tooltip, Text.HELPER_GLOW_NOTE) end
+        end
         tooltip:SetMinimumWidth(340, true)
         widened = true
     end)
-    table.insert(ns.onSpellsChanged, function()
-        box:Refresh()
-        ns.Tips.Redraw(info)
-    end)
+    return box, info
 end
 
-local function DebuffsPage(page)
-    local timers = function() return db().timers end
-    local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 0, DEBUFFS_SCROLL_RISE)
-    scroll:SetSize(PAGE_WIDTH, PAGE_HEIGHT + DEBUFFS_SCROLL_RISE)
+function Window.PageScroll(page, name, top, height)
+    local scroll = CreateFrame("ScrollFrame", name, page, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 0, top)
+    scroll:SetSize(PAGE_WIDTH, (height or PAGE_HEIGHT) + top)
     if scroll.ScrollBar then
         scroll.ScrollBar:ClearAllPoints()
         scroll.ScrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", SCROLL_BAR_X, -16)
         scroll.ScrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", SCROLL_BAR_X, 16)
     end
+    return scroll
+end
+
+local function ScrollContent(page, height)
+    local scroll = Window.PageScroll(page, nil, 0, height - DEBUFFS_BOTTOM_INSET)
     local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(PAGE_WIDTH, PAGE_HEIGHT)
+    content:SetSize(PAGE_WIDTH, height)
     scroll:SetScrollChild(content)
+    return content
+end
+
+local ALERT_TALENTS = {
+    shadowTrance = 18094,
+    decimation = 440870,
+    amplifyCurse = Core.SPELLS.amplifyCurse[1],
+}
+
+local ALERT_ICONS = {
+    shadowTrance = Core.SHADOW_TRANCE_ID,
+    antiFear = Core.SPELLS.fear[1],
+}
+
+local function AlertSwitch(page, x, y, key, path, get)
+    local talent = ALERT_TALENTS[key]
+    local icon = ALERT_ICONS[key] or talent
+    local box = Check(page, x, y, ns.AlertName(key), get, function(on) ns.SetSetting(path, on) end, 118, icon)
+    if talent then
+        GreyedBy(box, function() return FamilyKnown(talent) end)
+        table.insert(ns.onSpellsChanged, function() box:Refresh() end)
+    end
+    return box
+end
+
+local SOUND_SPELLS = {
+    SET_WARN_SOUND = Core.SPELLS.banish[1],
+    SET_SOUND_DEMON = Core.SPELLS.enslaveDemon[1],
+    SET_SOUND_SOULSTONE = Core.SPELLS.createSoulstone[1],
+    SET_SOUND_BREATH = Core.SPELLS.unendingBreath[1],
+}
+
+local function GeneralPage(page)
+    local macroHead = Heading(page, Text.SET_FOCUS_MACROS, 0)
+    InfoIcon(page, macroHead, Text.SET_FOCUS_MACROS, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_MACROS_BARS)
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Line(tooltip, Text.TIP_MACROS_KEYS)
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Line(tooltip, Text.TIP_MACROS_FOCUS)
+    end)
+    local petIcons = {}
+    for i, key in ipairs(Core.MACRO_ROW) do
+        local icon = MacroIcon(page, 4 + MACRO_GAP * (i - 1), -20, key)
+        if Core.PET_SPELLS[key] then petIcons[#petIcons + 1] = icon end
+    end
+    table.insert(ns.onSpellsChanged, function()
+        for _, icon in ipairs(petIcons) do icon:Refresh() end
+    end)
+
+    Heading(page, Text.SET_HEAD_DISPLAY, -60)
+    local off = Core.RoundToStep(Core.ANIM_SPEED_MIN - Core.ANIM_SPEED_STEP, Core.ANIM_SPEED_STEP)
+    Slider(page, 5, -88, Text.SET_ANIM_SPEED, off, Core.ANIM_SPEED_MAX, Core.ANIM_SPEED_STEP,
+        function()
+            if db().animation.on == false then return off end
+            return Core.ClampAnimSpeed(db().animation.speed)
+        end,
+        function(value)
+            local on = value >= Core.ANIM_SPEED_MIN
+            if on then ns.SetAnimationSpeed(value) end
+            ns.SetAnimationsOn(on)
+        end, "times", { off = off })
+    Check(page, RIGHT_COLUMN, -85, Text.SET_TOOLTIPS, function() return db().tooltips ~= false end,
+        function(on) ns.SetSetting("tooltips", on) end)
+
+    Dropdown(page, 4, -121, Text.SET_LANGUAGE, function()
+        local auto = string.format(Text.SET_LANGUAGE_AUTO, Core.LanguageName(ns.clientLanguage) or Core.LanguageName("enUS"))
+        return Core.LanguageChoices(ns.Locales, auto)
+    end, function() return Core.LanguageOrDefault(db().language, ns.Locales) end, function(value)
+        if value == db().language then return end
+        ns.SetSetting("language", value)
+        Window.ConfirmLanguage()
+    end, 138)
+    local windowSizes = {}
+    for i, size in ipairs(Core.WINDOW_SCALES) do
+        windowSizes[i] = { size, string.format(Text.SETTINGS_PERCENT_VALUE, size) }
+    end
+    Dropdown(page, RIGHT_COLUMN, -121, Text.SET_WINDOW_SIZE, windowSizes,
+        function() return Core.WindowScaleOrDefault(db().windowScale) end,
+        function(value) ns.SetSetting("windowScale", value) end, 138)
+    local soundsTop, footerGap, footerHeight, bottomMargin = -168, 10, 38, 25
+    local rowHeight, groupGap = 24, 16
+    local height = 0
+    for _, group in ipairs(Core.SOUND_LIST) do
+        height = height + groupGap + math.ceil(#group.entries / 2) * rowHeight
+    end
+    local available = PAGE_HEIGHT + SETTINGS_EXTRA_HEIGHT + soundsTop - HEAD_ROW - footerGap - footerHeight - bottomMargin
+    local sounds = NewSection(page, Text.SET_SOUNDS, ns.SoundsOn, "soundsOn", math.min(height, available), Text.SET_ON)
+    sounds:SetPoint("TOPLEFT", page, "TOPLEFT", 0, soundsTop)
+    local list = sounds.body
+    if height > sounds.bodyHeight then
+        local scroll = CreateFrame("ScrollFrame", nil, list, "UIPanelScrollFrameTemplate")
+        scroll:SetAllPoints(list)
+        list = CreateFrame("Frame", nil, scroll)
+        list:SetSize(PAGE_WIDTH, height)
+        scroll:SetScrollChild(list)
+    end
+    local y = 0
+    for _, group in ipairs(Core.SOUND_LIST) do
+        Label(list, Text[group.title], 4, -y)
+        y = y + groupGap
+        for i, sound in ipairs(group.entries) do
+            local path, label, alert = sound[1], sound[2], sound[3]
+            local keys = Core.SplitPath(path)
+            local function On()
+                local value = db()
+                for _, key in ipairs(keys) do value = value[key] end
+                return value ~= false
+            end
+            local x = ((i - 1) % 2) * RIGHT_COLUMN
+            local rowY = -y - math.floor((i - 1) / 2) * rowHeight
+            local box
+            if alert then
+                box = AlertSwitch(list, x, rowY, alert, path, On)
+            else
+                box = Check(list, x, rowY, Text[label], On, function(on) ns.SetSetting(path, on) end, 118,
+                    SOUND_SPELLS[label])
+            end
+            box:SetSize(rowHeight, rowHeight)
+        end
+        y = y + math.ceil(#group.entries / 2) * rowHeight
+    end
+
+    local other = CreateFrame("Frame", nil, page)
+    other:SetSize(PAGE_WIDTH, footerHeight)
+    other:SetPoint("TOPLEFT", sounds, "BOTTOMLEFT", 0, -footerGap)
+    Heading(other, Text.SET_HEAD_OTHER, 0)
+    local demo = PushButton(other, 4, -16, Text.SET_DEMO_START, function() ns.SetDemo(not ns.demoData) end,
+        138, function() return not InCombat() end)
+    local refreshDemo = demo.Refresh
+    function demo:Refresh()
+        refreshDemo(self)
+        self:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.SET_DEMO_START)
+    end
+    PushButton(other, RIGHT_COLUMN, -16, Text.SET_RESET_ALL, function() Window.ConfirmReset() end, 138)
+    controls[#controls + 1] = { Refresh = function()
+        local on = ns.SoundsOn()
+        sounds.body:SetShown(on)
+        sounds:SetHeight(HEAD_ROW + (on and sounds.bodyHeight or 0))
+    end }
+end
+
+local function DebuffsPage(page)
+    local timers = function() return db().timers end
+    local content = ScrollContent(page, PAGE_HEIGHT + SETTINGS_EXTRA_HEIGHT)
 
     local track = CreateFrame("Frame", nil, content)
     track:SetSize(PAGE_WIDTH, TRACK_HEIGHT)
     track:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-    Heading(track, Text.SET_TRACK, TRACK_TOP)
-    Label(track, Text.SET_ORDER_HELP, 0, TRACK_TOP - 16, "GameFontDisableSmall")
-    OrderList(track, 0, TRACK_TOP - 32, PAGE_WIDTH - 10, #Core.ENEMY_SLOTS * ROW_HEIGHT, FamilySource())
+    local trackHeading = Heading(track, Text.SET_TRACK, TRACK_TOP)
+    InfoIcon(track, trackHeading, Text.SET_TRACK, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_TRACK_DISPLAYS)
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Note(tooltip, Text.SET_ORDER_HELP)
+    end)
+    OrderList(track, 0, TRACK_TOP - 22, PAGE_WIDTH - 10, #Core.ENEMY_SLOTS * ROW_HEIGHT, FamilySource())
 
-    local glow = NewSection(content, Text.SET_BAR_HIGHLIGHT, function() return timers().barHighlight.on ~= false end,
-        "timers.barHighlight.on", 26)
-    WrackRotationOption(glow.body, glow.on)
-
-    local multi = NewSection(content, Text.SET_MULTI_ON, function() return timers().multiOn ~= false end,
+    local multi = NewSection(content, Text.SET_DEBUFF_TRACKER, function() return timers().multiOn ~= false end,
         "timers.multiOn", -SLIDER_TOP + 30)
+    InfoIcon(multi, multi.heading, Text.SET_DEBUFF_TRACKER, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_TRACKER_NAMEPLATES)
+    end)
     Slider(multi.body, 5, SLIDER_TOP, Text.SET_SIZE, Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP,
         function() return Core.TimerScale(timers(), "multi") end, function(value) ns.Timers.SetScale("multi", value) end,
         "percent")
@@ -978,33 +1192,64 @@ local function DebuffsPage(page)
             ns.SetSetting("timers.grow.multi", value)
         end, 105)
 
-    local target = ReminderSection(content, Text.SET_MISSING_TARGET, "targetReminder")
-    local plate = ReminderSection(content, Text.SET_MISSING_PLATE, "plateReminder", Core.ClampPlateOffset,
+    local missing = CreateFrame("Frame", nil, content)
+    missing:SetWidth(PAGE_WIDTH)
+    Heading(missing, Text.SET_MISSING_DEBUFFS, 0)
+    local target = ReminderSection(missing, Text.SET_MISSING_ON_TARGET, "targetReminder")
+    local plate = ReminderSection(missing, Text.SET_MISSING_ON_NAMEPLATES, "plateReminder", Core.ClampPlateOffset,
         Core.PLATE_OFFSET_MIN, Core.PLATE_OFFSET_MAX)
 
+    local function Place(section, parent, y)
+        local on = section.on()
+        section.body:SetShown(on)
+        local height = HEAD_ROW + (on and section.bodyHeight or 0)
+        section:ClearAllPoints()
+        section:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+        section:SetHeight(height)
+        return y + height
+    end
     local layout = {}
     function layout:Refresh()
-        local y = TRACK_HEIGHT + SECTION_SPACE
-        for _, section in ipairs({ glow, multi, target, plate }) do
-            local on = section == glow or section.on() == true
-            section.body:SetShown(on)
-            local height = HEAD_ROW + (on and section.bodyHeight or 0)
-            section:ClearAllPoints()
-            section:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
-            section:SetHeight(height)
-            y = y + height + SECTION_SPACE
-        end
-        content:SetHeight(y - SECTION_SPACE)
+        local y = Place(multi, content, TRACK_HEIGHT + SECTION_SPACE) + SECTION_SPACE
+        missing:ClearAllPoints()
+        missing:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+        local plateTop = Place(target, missing, 20) + SECTION_SPACE
+        local height = Place(plate, missing, plateTop)
+        missing:SetHeight(height)
+        content:SetHeight(y + height + SECTION_SPACE)
     end
     controls[#controls + 1] = layout
 end
 
-local function AlertRow(page, key, y)
-    Check(page, 0, y, ns.AlertName(key), function() return db().alerts[key .. "On"] ~= false end, function(on)
-        ns.SetSetting("alerts." .. key .. "On", on)
+local DEBUFFS_PAGE_INDEX = 7
+
+local function RotationPage(page)
+    local timers = function() return db().timers end
+    local helper = NewSection(page, Text.SET_BAR_HIGHLIGHT, function() return timers().barHighlight.on ~= false end,
+        "timers.barHighlight.on", 70)
+    helper:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+    InfoIcon(helper, helper.heading, Text.SET_BAR_HIGHLIGHT, function(tooltip)
+        ns.Tips.Line(tooltip, string.format(Text.TIP_ROTATION_ORDER,
+            Core.TipHeading(Text.SET_TRACK) .. "|cffffffff",
+            "|cffffff00" .. Text.SETTINGS_TAB_DEBUFFS .. "|r|cffffffff"))
+        ns.Tips.Line(tooltip, " ")
+        ns.Tips.Line(tooltip, Text.TIP_ROTATION_GLOW)
     end)
-    Check(page, RIGHT_COLUMN, y, Text.SET_ALERT_SOUND, function() return db().alerts.sounds[key] ~= false end,
-        function(on) ns.SetSetting("alerts.sounds." .. key, on) end)
+    local wrackBox, wrackInfo = WrackRotationOption(helper.body, helper.on)
+    PushButton(helper.body, 4, -40, Text.SET_EDIT_ORDER, function()
+        Window.ShowPage(DEBUFFS_PAGE_INDEX)
+    end, 138)
+    local layout = {}
+    function layout:Refresh()
+        local on = helper.on() == true
+        helper.body:SetShown(on)
+        helper:SetHeight(HEAD_ROW + (on and helper.bodyHeight or 0))
+    end
+    controls[#controls + 1] = layout
+    table.insert(ns.onSpellsChanged, function()
+        wrackBox:Refresh()
+        ns.Tips.Redraw(wrackInfo)
+    end)
 end
 
 -- size, spacing and opacity of bar
@@ -1023,72 +1268,126 @@ local function BarSliders(page, y, saved)
         end)
 end
 
-local BAR_BLOCK = 128
-
-local function BarBlock(tab, title, saved)
-    local on = function() return db()[saved].on ~= false end
-    Heading(tab, title, HEAD_TOP)
-    Check(tab, SHOW_X, HEAD_TOP + 7, Text.SET_SHOW, on, function(value) ns.SetSetting(saved .. ".on", value) end, 60)
-    local body = Section(tab, on)
-    BarSliders(body, HEAD_TOP - 30, saved)
-    return body
-end
-
 local ALERT_ROW = 26
 
 local function AlertsPage(tab)
-    local page = BarBlock(tab, Text.SET_PROC_BAR, "procBar")
-    for i, key in ipairs(Core.ALERT_KEYS) do AlertRow(page, key, -BAR_BLOCK - (i - 1) * ALERT_ROW) end
-    local soundsTop = -BAR_BLOCK - #Core.ALERT_KEYS * ALERT_ROW - 8
-    Check(page, 0, soundsTop, Text.SET_WARN_SOUND, function() return db().timers.warnSound end,
-        function(on) ns.SetSetting("timers.warnSound", on) end)
-    Check(page, 0, soundsTop - 26, Text.SET_SOUND_DEMON, function() return db().timers.sounds.enslaveDemon ~= false end,
-        function(on) ns.SetSetting("timers.sounds.enslaveDemon", on) end)
-    Check(page, 0, soundsTop - 52, Text.SET_SOUND_SOULSTONE, function() return db().alerts.sounds.soulstone ~= false end,
-        function(on) ns.SetSetting("alerts.sounds.soulstone", on) end)
-    local sacrificeOn = function() return db().alerts.sacrificeOn ~= false end
-    local SACRIFICE_DROP_X = 200
-    Check(page, 0, soundsTop - 78, Text.SET_SACRIFICE_GLOW,
-        sacrificeOn, function(on) ns.SetSetting("alerts.sacrificeOn", on) end, SACRIFICE_DROP_X - 30)
+    tab:SetScript("OnHide", function() ns.ProcAlerts.StopPreview() end)
+
+    local testAlertsY = -96 - math.ceil(#Core.ALERT_KEYS / 2) * ALERT_ROW
+    local alertBar = NewSection(tab, Text.SET_PROC_BAR, function() return db().procBar.on ~= false end,
+        "procBar.on", -testAlertsY + ALERT_ROW)
+    BarSliders(alertBar.body, SLIDER_TOP, "procBar")
+    for i, key in ipairs(Core.ALERT_KEYS) do
+        local column, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        local field = key .. "On"
+        AlertSwitch(alertBar.body, column * RIGHT_COLUMN, -96 - row * ALERT_ROW, key, "alerts." .. field,
+            function() return db().alerts[field] ~= false end)
+    end
+    PushButton(alertBar.body, RIGHT_COLUMN, testAlertsY, Text.SET_TEST_ALERTS,
+        function() ns.ProcAlerts.TestAlerts() end, 130, function() return not InCombat() and not ns.demoData end)
+
+    local glows = NewSection(tab, Text.SET_ACTION_BAR_GLOWS, function() return db().alerts.glows.on ~= false end,
+        "alerts.glows.on", 156)
+    for i, key in ipairs({ "shadowTrance", "decimation" }) do
+        AlertSwitch(glows.body, (i - 1) * RIGHT_COLUMN, 0, key, "alerts.glows." .. key,
+            function() return db().alerts.glows[key] ~= false end)
+    end
     local thresholds = {}
     for i, percent in ipairs(Core.SACRIFICE_THRESHOLDS) do
         thresholds[i] = { percent, string.format(Text.SET_SACRIFICE_AT, percent) }
     end
-    GreyedBy(Dropdown(page, SACRIFICE_DROP_X, soundsTop - 78, nil, thresholds,
-        function() return Core.SacrificeThresholdOrDefault(db().alerts.sacrificeAt) end,
-        function(value) ns.SetSetting("alerts.sacrificeAt", value) end, PAGE_WIDTH - SACRIFICE_DROP_X), sacrificeOn)
-end
+    local function healthRow(key, label, condition, y)
+        local on = function() return db().alerts[key .. "On"] ~= false end
+        Check(glows.body, 0, y, label, on, function(value) ns.SetSetting("alerts." .. key .. "On", value) end,
+            nil, Core.SPELLS[key][1])
+        local conditionLabel = Label(glows.body, condition, 28, y - 28, "GameFontHighlightSmall", false)
+        conditionLabel:SetWidth(175)
+        GreyLabel(conditionLabel, on)
+        local setting = key .. "At"
+        GreyedBy(Dropdown(glows.body, 210, y - 21, nil, thresholds,
+            function() return Core.SacrificeThresholdOrDefault(db().alerts[setting], Core.DEFAULTS.alerts[setting]) end,
+            function(value) ns.SetSetting("alerts." .. setting, value) end, PAGE_WIDTH - 210), on)
+    end
+    healthRow("sacrifice", Text.SET_SACRIFICE_GLOW, Text.SET_SACRIFICE_HEALTH, -28)
+    healthRow("healthFunnel", SpellName(Core.SPELLS.healthFunnel[1]) or Text.SET_HEALTH_FUNNEL_GLOW,
+        Text.SET_HEALTH_FUNNEL_HEALTH, -79)
+    PushButton(glows.body, RIGHT_COLUMN, -130, Text.SET_TEST_GLOWS,
+        function() ns.ProcAlerts.TestGlows() end, 130, function() return not InCombat() and not ns.demoData end)
 
-local function SAFE_CHOICES()
-    return { { "off", Text.SET_SAFE_OFF }, { "narrow", Text.SET_SAFE_NARROW }, { "wide", Text.SET_SAFE_WIDE } }
-end
-
-local SAFE_COLUMN = 140
-local REMINDER_ROW = 27
-local REMINDER_TOP = -BAR_BLOCK
-
-local function RemindersPage(tab)
-    local page = BarBlock(tab, Text.SET_REMINDER_BAR, "reminderBar")
-    for i, key in ipairs(Core.CONTROL_BUTTON_KEYS) do
-        local def = Core.CONTROL_BUTTONS[key]
-        local name = def.label and Text[def.label]
-            or SpellName(Core.SPELLS[def.spells[#def.spells]][1]) or key
-        local y = REMINDER_TOP - (i - 1) * REMINDER_ROW
-        Check(page, 0, y, name, function() return db().controlButtons[key].on ~= false end,
-            function(on)
-                ns.SetSetting("controlButtons." .. key .. ".on", on)
-            end, SAFE_COLUMN - 30)
-        if def.alwaysShow then
-            Check(page, SAFE_COLUMN, y, Text.SET_ALERT_SOUND, function() return db().alerts.sounds[key] ~= false end,
-                function(on) ns.SetSetting("alerts.sounds." .. key, on) end)
-        else
-            GreyedBy(Dropdown(page, SAFE_COLUMN, y, nil, SAFE_CHOICES,
-                function() return Core.SafeLevelOrDefault(db().controlButtons[key].safeHide) end,
-                function(value)
-                    ns.SetSetting("controlButtons." .. key .. ".safeHide", value)
-                end, PAGE_WIDTH - SAFE_COLUMN), function() return db().controlButtons[key].on ~= false end)
+    local layout = {}
+    function layout:Refresh()
+        local y = 0
+        for _, section in ipairs({ alertBar, glows }) do
+            local on = section.on() == true
+            section.body:SetShown(on)
+            local height = HEAD_ROW + (on and section.bodyHeight or 0)
+            section:ClearAllPoints()
+            section:SetPoint("TOPLEFT", tab, "TOPLEFT", 0, -y)
+            section:SetHeight(height)
+            y = y + height + SECTION_SPACE
         end
     end
+    controls[#controls + 1] = layout
+end
+
+local function RemindersPage(tab)
+    local bar = NewSection(tab, Text.SET_REMINDER_BAR, function() return db().reminderBar.on ~= false end,
+        "reminderBar.on", 126)
+    bar:SetPoint("TOPLEFT", tab, "TOPLEFT", 0, 0)
+    BarSliders(bar.body, SLIDER_TOP, "reminderBar")
+    Check(bar.body, 0, -94, Text.SET_SAFE_NARROW, function() return db().reminderBar.hideInCities end,
+        function(on) ns.SetSetting("reminderBar.hideInCities", on) end)
+
+    local reminders = CreateFrame("Frame", nil, tab)
+    reminders:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -SECTION_SPACE)
+    reminders:SetSize(PAGE_WIDTH, 190)
+    local heading = Heading(reminders, Text.SETTINGS_TAB_REMINDERS, 0)
+    InfoIcon(reminders, heading, Text.SETTINGS_TAB_REMINDERS, function(tooltip)
+        ns.Tips.Line(tooltip, string.format(Text.TIP_REMINDER_SNOOZE, Core.REMINDER_DISMISS_SECONDS / 60))
+    end)
+    local keys = { "armour", "unendingBreath", "demon", "healthstone", "soulstone", "weaponStone",
+        "sacrifice", "soulLink" }
+    for i, key in ipairs(keys) do
+        local def = Core.CONTROL_BUTTONS[key]
+        local id = Core.SPELLS[def.spells[#def.spells]][1]
+        local name = def.label and Text[def.label] or SpellName(id) or key
+        local x, y = ((i - 1) % 2) * RIGHT_COLUMN, -17 - math.floor((i - 1) / 2) * 26
+        local box = Check(reminders, x, y, name, function() return db().controlButtons[key].on ~= false end,
+            function(on) ns.SetSetting("controlButtons." .. key .. ".on", on) end, 98)
+        local icon = box:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("LEFT", box, "RIGHT", 2, 0)
+        icon:SetTexture(Plain(C_Spell.GetSpellTexture, key == "demon" and Core.SPELLS.senseDemons[1] or id))
+        box.label:ClearAllPoints()
+        box.label:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+        if key == "sacrifice" or key == "soulLink" then
+            GreyedBy(box, function() return ns.Buttons.IsKnown(id) end)
+        end
+    end
+    local function choices()
+        local list = { { "", Text.SET_DEMON_AUTOMATIC } }
+        for _, key in ipairs(Core.DEMON_SUMMON_KEYS) do
+            local id = Core.HighestKnown(Core.SPELLS[key], ns.Buttons.IsKnown)
+            if id then list[#list + 1] = { key, Text["SET_DEMON_" .. string.upper(key)] } end
+        end
+        return list
+    end
+    local presets = Section(reminders, function() return db().controlButtons.sacrifice.on ~= false end)
+    for i, field in ipairs({ "preferred", "keep" }) do
+        local label = field == "preferred" and Text.SET_SACRIFICE_PREFERRED or Text.SET_SACRIFICE_KEEP
+        GreyedBy(Dropdown(presets, (i - 1) * RIGHT_COLUMN, -125, label, choices,
+            function() return db().controlButtons.sacrifice[field] end,
+            function(key) ns.SetSetting("controlButtons.sacrifice." .. field, key) end, 136),
+            function() return ns.Buttons.IsKnown(Core.SPELLS.demonicSacrifice[1])
+                and (field == "preferred" or ns.Buttons.IsKnown(Core.SPELLS.demonicPact[1])) end)
+    end
+    controls[#controls + 1] = { Refresh = function()
+        local on = bar.on()
+        bar.body:SetShown(on)
+        reminders:SetShown(on)
+        bar:SetHeight(HEAD_ROW + (on and bar.bodyHeight or 0))
+    end }
+    table.insert(ns.onSpellsChanged, function() Window.Refresh() end)
 end
 
 -- tall box for emote or line text
@@ -1117,7 +1416,22 @@ local function SpeechBox(page, x, y, height, get, set)
         Save(self)
         self:ClearFocus()
     end)
-    box:SetScript("OnEditFocusLost", Save)
+    local shown = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    shown:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -6)
+    shown:SetWidth(PAGE_WIDTH - 17)
+    shown:SetJustifyH("LEFT")
+    shown:SetJustifyV("TOP")
+    box:SetTextColor(0, 0, 0, 0)
+    box:SetScript("OnEditFocusGained", function(self)
+        self:SetTextColor(1, 1, 1, 1)
+        shown:Hide()
+    end)
+    box:SetScript("OnEditFocusLost", function(self)
+        Save(self)
+        self:SetTextColor(0, 0, 0, 0)
+        shown:SetText(Core.ColourTags(get()))
+        shown:Show()
+    end)
     box:SetScript("OnEscapePressed", function(self)
         self:SetText(get())
         self:SetCursorPosition(0)
@@ -1127,6 +1441,7 @@ local function SpeechBox(page, x, y, height, get, set)
         if box:HasFocus() then return end
         box:SetText(get())
         box:SetCursorPosition(0)
+        shown:SetText(Core.ColourTags(get()))
     end
     holder.box = box
     controls[#controls + 1] = holder
@@ -1154,30 +1469,48 @@ end
 local function SpeechPage(page)
     local speechOn = function() return db().speech.on == true end
     local subjectOn = function() return db().speech.off[selectedSubject] ~= true end
+    local speech = NewSection(page, Text.SETTINGS_TAB_SPEECH, speechOn, "speech.on", 306, Text.SET_SPEECH_ON)
+    speech:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+    speech:SetHeight(HEAD_ROW + speech.bodyHeight)
+    InfoIcon(speech, speech.heading, Text.SETTINGS_TAB_SPEECH, function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_SPEECH_PRESETS)
+        ns.Tips.Line(tooltip, Text.TIP_SPEECH_NAMES)
+    end)
+    local rest = speech.body
     local channels = { { "SAY", Text.SET_CHANNEL_SAY }, { "YELL", Text.SET_CHANNEL_YELL }, { "PARTY", Text.SET_CHANNEL_PARTY } }
-    GreyedBy(Dropdown(page, 0, 0, nil, channels, function() return db().speech.channel end,
-        function(value) ns.SetSetting("speech.channel", value) end, 138), speechOn)
-    Check(page, RIGHT_COLUMN, 0, Text.SET_SPEECH_ON, function() return db().speech.on end,
-        function(on) ns.SetSetting("speech.on", on) end)
+    local channelList = Dropdown(rest, 0, 0, Text.SET_SPEECH_CHANNEL, channels, function()
+        if selectedSubject == "ritualOfSummoning" then return "PARTY" end
+        return db().speech.channel
+    end, function(value) ns.SetSetting("speech.channel", value) end, 138)
 
-    local rest = Section(page, speechOn)
     local subjects = {}
     for i, subject in ipairs(Core.SPEECH_SUBJECTS) do subjects[i] = { subject, SubjectName(subject) } end
-    Dropdown(rest, 0, -32, nil, subjects, function() return selectedSubject end,
+    local subjectList = Dropdown(rest, 0, -46, Text.SET_SPEECH_SUBJECT, subjects, function() return selectedSubject end,
         function(value) selectedSubject = value end, 138)
-    Check(rest, RIGHT_COLUMN, -32, Text.SET_SPEECH_SUBJECT_ON, subjectOn, function(on)
+    local ritualInfo = InfoIcon(rest, subjectList.pageLabel, SubjectName("ritualOfSummoning"), function(tooltip)
+        ns.Tips.Line(tooltip, Text.TIP_SPEECH_RITUAL)
+    end)
+    Check(rest, RIGHT_COLUMN, -59, Text.SET_SPEECH_SUBJECT_ON, subjectOn, function(on)
         ns.SetSetting("speech.off." .. selectedSubject, (not on) or nil)
     end)
-
+    controls[#controls + 1] = { Refresh = function()
+        local on = speechOn()
+        rest:SetShown(on)
+        speech:SetHeight(HEAD_ROW + (on and speech.bodyHeight or 0))
+        ritualInfo:SetShown(selectedSubject == "ritualOfSummoning")
+        local locked = selectedSubject == "ritualOfSummoning"
+        channelList:SetEnabled(not locked)
+        channelList:SetAlpha(locked and 0.5 or 1)
+        channelList.pageLabel:SetAlpha(locked and 0.5 or 1)
+    end }
     local lines = Section(rest, subjectOn)
-    local help = Label(lines, Text.SET_SPEECH_HELP, 0, -66, "GameFontHighlightSmall", false)
-    help:SetWidth(PAGE_WIDTH)
 
     local PRESET_TOP = -94
     Dropdown(lines, 0, PRESET_TOP, Text.SET_SPEECH_PRESET, function()
         local options = {}
         for i, set in ipairs(Presets()) do
-            options[i] = { i, string.format(Text.SET_SPEECH_PRESET_NAME, i, Core.PresetName(set, 40, Text.SET_SPEECH_EMPTY)) }
+            options[i] = { i, string.format(Text.SET_SPEECH_PRESET_NAME, i,
+                Core.ColourTags(Core.PresetName(set, 40, Text.SET_SPEECH_EMPTY))) }
         end
         return options
     end, CurrentPreset, function(value) selectedPreset[selectedSubject] = value end, nil, 10)
@@ -1189,9 +1522,24 @@ local function SpeechPage(page)
     end, 62,
         function() return #Presets() < Core.SPEECH_MAX end)
     PushButton(lines, 224, PRESET_TOP - 14, Text.SET_SPEECH_DELETE, function()
-        local index = CurrentPreset()
-        if index > 0 then ns.Speech.DeleteSet(selectedSubject, index) end
-    end, 62)
+        local subject, index = selectedSubject, CurrentPreset()
+        local preset = Presets()[index]
+        if not preset then return end
+        local emote, line = preset.emote, preset.line
+        local function Delete()
+            local current = Core.SpeechSets(subject, db().speech.sets, Text)[index]
+            if not current or current.emote ~= emote or current.line ~= line then return end
+            ns.Speech.DeleteSet(subject, index)
+        end
+        if emote ~= "" or line ~= "" then
+            Confirm("deleteSpeech", Text.SET_SPEECH_DELETE_CONFIRM, Text.SET_SPEECH_DELETE, function()
+                Delete()
+                RefreshAll()
+            end, SubjectName(subject))
+        else
+            Delete()
+        end
+    end, 62, function() return CurrentPreset() > 0 end)
 
     local boxes = Section(lines, function() return CurrentPreset() > 0 end)
     Label(boxes, Text.SET_SPEECH_EMOTE, 0, PRESET_TOP - 44)
@@ -1215,15 +1563,72 @@ local function SpeechPage(page)
     end)
 end
 
+function Window.NewSummonOptions(page, width)
+    local panelWidth = width or PAGE_WIDTH
+    local function CheckSetting(x, y, label, path, get, labelWidth)
+        Check(page, x, y, label, get, function(value)
+            ns.SetSetting("summon." .. path, value)
+        end, labelWidth or (panelWidth - x - 30)):Refresh()
+    end
+    Heading(page, Text.SET_SUMMON_WINDOW, 0)
+    CheckSetting(0, -18, Text.SET_SUMMON_AUTO_OPEN, "autoOpen", function() return db().summon.autoOpen end)
+    Heading(page, Text.SET_SUMMON_LISTEN, -46)
+    local wordsTop
+    if panelWidth < 250 then
+        CheckSetting(0, -60, Text.SET_SUMMON_LISTEN_GROUP, "listen.group", function() return db().summon.listen.group end)
+        CheckSetting(0, -82, Text.SET_SUMMON_LISTEN_WHISPER, "listen.whisper", function() return db().summon.listen.whisper end)
+        wordsTop = -112
+    else
+        CheckSetting(0, -58, Text.SET_SUMMON_LISTEN_GROUP, "listen.group", function() return db().summon.listen.group end, 123)
+        CheckSetting(155, -58, Text.SET_SUMMON_LISTEN_WHISPER, "listen.whisper", function() return db().summon.listen.whisper end)
+        wordsTop = -88
+    end
+
+    Heading(page, Text.SET_SUMMON_WORDS, wordsTop)
+    Label(page, Text.SET_SUMMON_WORDS_HELP, 0, wordsTop - 16, "GameFontHighlightSmall", panelWidth)
+    local boxWidth = panelWidth - 28
+    local scroll = CreateFrame("ScrollFrame", "NecrosisOGSummonWordsScroll", page, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 2, wordsTop - 38)
+    scroll:SetSize(boxWidth, 52)
+    local background = scroll:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(0, 0, 0, 0.5)
+    local box = CreateFrame("EditBox", nil, scroll)
+    box:SetMultiLine(true)
+    box:SetAutoFocus(false)
+    box:SetFontObject("GameFontHighlightSmall")
+    box:SetSize(boxWidth, 52)
+    scroll:SetScrollChild(box)
+    scroll:SetScript("OnMouseDown", function() box:SetFocus() end)
+    ScrollingEdit_OnLoad(box)
+    box:SetScript("OnCursorChanged", ScrollingEdit_OnCursorChanged)
+    box:SetScript("OnTextChanged", function(self) ScrollingEdit_OnTextChanged(self, scroll) end)
+    box:SetScript("OnUpdate", ScrollingEdit_OnUpdate)
+    box:SetText(db().summon.requestWords)
+    box:SetCursorPosition(0)
+    box:SetScript("OnEditFocusLost", function(self)
+        local words = table.concat(Core.SummonWords(self:GetText()), "\n")
+        if words ~= db().summon.requestWords then ns.SetSetting("summon.requestWords", words) end
+        if self:GetText() ~= words then self:SetText(words) end
+    end)
+    box:SetScript("OnEscapePressed", function(self)
+        self:SetText(db().summon.requestWords)
+        self:ClearFocus()
+    end)
+    page:SetScript("OnHide", function() box:ClearFocus() end)
+    return -(wordsTop - 38 - 52)
+end
+
 local PAGES = {
     { "SETTINGS_TAB_GENERAL", "Ability_Creature_Cursed_03", GeneralPage },
     { "SETTINGS_TAB_SPHERE", "INV_Misc_Gem_Amethyst_02", SpherePage },
     { "SETTINGS_TAB_BUTTONS", "Trade_Engineering", ButtonsPage },
     { "SETTINGS_TAB_MENUS", "INV_Misc_Book_01", MenusPage },
-    { "SETTINGS_TAB_DEBUFFS", Core.SPELLS.baneOfAgony[1], DebuffsPage },
-    { "SETTINGS_TAB_CONTROLS", "Spell_Shadow_Cripple", ControlsPage },
     { "SETTINGS_TAB_ALERTS", "INV_Misc_Bell_01", AlertsPage },
     { "SETTINGS_TAB_REMINDERS", "INV_Misc_PocketWatch_01", RemindersPage },
+    { "SETTINGS_TAB_DEBUFFS", Core.SPELLS.baneOfAgony[1], DebuffsPage },
+    { "SETTINGS_TAB_ROTATION", Core.SPELLS.lifeTap[1], RotationPage },
+    { "SETTINGS_TAB_CONTROLS", "Spell_Shadow_Cripple", ControlsPage },
     { "SETTINGS_TAB_SPEECH", "ability_warrior_rallyingcry", SpeechPage },
 }
 
@@ -1252,12 +1657,13 @@ end
 CreateLockButton = function()
     local button = CreateFrame("Button", "NecrosisOGLockButton", frame, "UIPanelButtonTemplate")
     button:SetSize(60, 18)
-    button:SetPoint("RIGHT", frame, "TOPRIGHT", -64, -24)
+    button:SetPoint("CENTER", frame, "TOPLEFT", 306, -64)
     FitButton(button, 100)
     button:SetScript("OnClick", function(self)
         Changed(SetLocked)(not db().locked)
         ns.Tips.Redraw(self)
     end)
+    ns.Sounds.Button(button)
     ns.Tips.Attach(button, LockTooltip, "ANCHOR_RIGHT", true)
     function button:Refresh()
         self:SetText(db().locked and Text.LOCK_BUTTON_UNLOCK or Text.LOCK_BUTTON_LOCK)
@@ -1266,9 +1672,29 @@ CreateLockButton = function()
     return button
 end
 
+local function GuideTooltip(tooltip)
+    ns.Tips.Title(tooltip, Text.SET_WELCOME_GUIDE)
+end
+
+CreateGuideButton = function()
+    local button = CreateFrame("Button", "NecrosisOGGuideButton", frame, "UIPanelButtonTemplate")
+    button:SetSize(20, 18)
+    button:SetPoint("RIGHT", frame, "TOPRIGHT", -64, -24)
+    button:SetText("?")
+    button:SetScript("OnClick", function()
+        Window.Close()
+        ns.Welcome.Show(true)
+    end)
+    ns.Sounds.Button(button)
+    ns.Tips.Attach(button, GuideTooltip, "ANCHOR_RIGHT", true)
+    return button
+end
+
 -- old stone window look for new frame
-function Window.ClassicFrame(window, titleText)
-    window:SetSize(WIDTH, HEIGHT)
+function Window.ClassicFrame(window, titleText, secure, extraHeight)
+    extraHeight = extraHeight or 0
+    Window.TrackScale(window, secure)
+    window:SetSize(WIDTH, HEIGHT + extraHeight)
     window:SetFrameStrata("DIALOG")
     window:SetToplevel(true)
     window:SetMovable(true)
@@ -1282,7 +1708,8 @@ function Window.ClassicFrame(window, titleText)
         { "BottomLeft", "BOTTOMLEFT", 256 }, { "BottomRight", "BOTTOMRIGHT", 128 } }
     for _, corner in ipairs(corners) do
         local texture = window:CreateTexture(nil, "BORDER")
-        texture:SetSize(corner[3], 256)
+        local height = corner[2]:find("^BOTTOM") and 256 + extraHeight or 256
+        texture:SetSize(corner[3], height)
         texture:SetTexture(WINDOW_ART .. corner[1])
         texture:SetPoint(corner[2])
     end
@@ -1311,6 +1738,7 @@ function Window.ClassicFrame(window, titleText)
     line:SetTextColor(1, 0.8, 0)
     local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
     close:SetPoint("CENTER", window, "TOPRIGHT", -46, -24)
+    ns.Sounds.Button(close)
     return title, line, close
 end
 
@@ -1322,28 +1750,43 @@ function Window.NewPage(window)
     return page
 end
 
+local scaledWindows = {}
+local scalePending = false
+
+function Window.TrackScale(window, secure)
+    scaledWindows[window] = secure == true
+    window:SetScale(Core.WindowScaleOrDefault(db().windowScale) / 100)
+end
+
 -- change size of the settings window, keep the corner in place
 function Window.ApplyScale()
-    if not frame then return end
     local scale = Core.WindowScaleOrDefault(db().windowScale) / 100
-    local old = frame:GetScale()
-    if math.abs(old - scale) < 0.0001 then return end
-    local point, _, relativePoint, x, y = frame:GetPoint()
-    frame:SetScale(scale)
-    if point then
-        frame:ClearAllPoints()
-        frame:SetPoint(point, UIParent, relativePoint, x * old / scale, y * old / scale)
-        SavePlace()
+    scalePending = false
+    for window, secure in pairs(scaledWindows) do
+        local old = window:GetScale()
+        if old ~= scale then
+            if secure and InCombat() then
+                scalePending = true
+            else
+                local point, parent, relativePoint, x, y = window:GetPoint()
+                window:SetScale(scale)
+                if point and parent == UIParent then
+                    window:ClearAllPoints()
+                    window:SetPoint(point, parent, relativePoint, x * old / scale, y * old / scale)
+                    if window == frame then SavePlace() end
+                end
+            end
+        end
     end
 end
 
-ns.OnSetting("windowScale", function() Window.ApplyScale() end)
+ns.OnSetting("windowScale", Window.ApplyScale)
+ns.OnSetting("buttons.autoDestroy", function() Window.Refresh() end)
 
 local function Create()
     frame = CreateFrame("Frame", "NecrosisOGSettingsFrame", UIParent)
-    local _
-    _, pageTitle = Window.ClassicFrame(frame, Text.SETTINGS_TITLE)
-    frame:SetScale(Core.WindowScaleOrDefault(db().windowScale) / 100)
+    local title
+    title, pageTitle = Window.ClassicFrame(frame, Text.SETTINGS_TITLE, nil, SETTINGS_EXTRA_HEIGHT)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         SavePlace()
@@ -1351,10 +1794,11 @@ local function Create()
     local saved = ns.db.settingsWindow
     frame:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y)
     local version = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    version:SetPoint("CENTER", frame, "TOPLEFT", 306, -64)
+    version:SetPoint("LEFT", title, "RIGHT", 4, 0)
     version:SetTextColor(99 / 255, 227 / 255, 20 / 255)
     version:SetText(Text.SETTINGS_VERSION:format(ns.Version()))
     CreateLockButton()
+    CreateGuideButton()
     afterCombatNote = frame:CreateFontString(nil, "ARTWORK", "GameFontRedSmall")
     afterCombatNote:SetPoint("TOP", pageTitle, "BOTTOM", 0, -2)
     afterCombatNote:SetText(Text.SETTINGS_AFTER_COMBAT)
@@ -1363,6 +1807,9 @@ local function Create()
     local lastTab
     for i, def in ipairs(PAGES) do
         local page = Window.NewPage(frame)
+        if def[3] == GeneralPage or def[3] == ButtonsPage or def[3] == MenusPage or def[3] == AlertsPage or def[3] == RemindersPage or def[3] == DebuffsPage then
+            page:SetHeight(PAGE_HEIGHT + SETTINGS_EXTRA_HEIGHT)
+        end
         def[3](page)
         page:Hide()
         pages[i] = page
@@ -1389,9 +1836,7 @@ local function Create()
         tab:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight")
         tab:GetCheckedTexture():SetBlendMode("ADD")
         tab:SetScript("OnClick", function()
-            if i ~= current and PlaySound and SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
-                PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
-            end
+            if i ~= current then ns.Sounds.Play("tab") end
             Window.ShowPage(i)
         end)
         ns.Tips.Attach(tab, function(tooltip) ns.Tips.Title(tooltip, Text[def[1]]) end, "ANCHOR_RIGHT", true)
@@ -1401,6 +1846,8 @@ local function Create()
     if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, frame:GetName()) end
     frame:SetScript("OnShow", RefreshAll)
     frame:Hide()
+    ns.Sounds.Window(frame)
+    if ns.AutoHide then ns.AutoHide.AddWindow(frame) end
     Window.ShowPage(1)
 end
 
@@ -1439,6 +1886,7 @@ local function RegisterGameOptions()
         if not frame then Create() end
         frame:Show()
     end)
+    ns.Sounds.Button(open)
     pcall(function()
         local category = Settings.RegisterCanvasLayoutCategory(panel, Text.SETTINGS_TITLE)
         Settings.RegisterAddOnCategory(category)
@@ -1467,6 +1915,8 @@ local function PrintHelp()
     ns.Print(Text.HELP_WELCOME)
     ns.Print(Text.HELP_TIMER)
     ns.Print(Text.HELP_HELPER)
+    ns.Print(Text.HELP_SUMMON)
+    ns.Print(Text.HELP_DEBUG)
     ns.Print(Text.HELP_HELP)
 end
 
@@ -1479,6 +1929,22 @@ function Window.Command(message)
             return
         end
         if command == "welcome" then ns.Welcome.Show() else Window.Open() end
+    elseif command == "debug" then
+        local mode = rest:lower()
+        if not forWarlock then return ns.Print(Text.COMPARTMENT_NOT_WARLOCK) end
+        if mode ~= "party" and mode ~= "raid" and mode ~= "off" then return ns.Print(Text.HELP_DEBUG) end
+        if InCombat() then return ns.Print(Text.DEBUG_IN_COMBAT) end
+        if mode == "off" and not ns.debugGroup then return ns.Print(Text.DEBUG_OFF) end
+        ns.debugGroup = mode ~= "off" and Core.DemoSummon(GetTime(), Text.DEMO_ZONE, mode) or nil
+        ns.SoulstoneShortcut.Preview()
+        ns.SummonQueue.Update()
+        ns.Print(mode == "party" and Text.DEBUG_PARTY or mode == "raid" and Text.DEBUG_RAID or Text.DEBUG_OFF)
+    elseif command == "summon" then
+        if not forWarlock then
+            ns.Print(Text.COMPARTMENT_NOT_WARLOCK)
+            return
+        end
+        ns.SummonQueue.Toggle()
     elseif command == "helper" then
         for _, line in ipairs(ns.BarHighlight and ns.BarHighlight.Report() or {}) do ns.Print(line) end
     elseif command == "timer" then
@@ -1510,7 +1976,13 @@ end
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
-events:SetScript("OnEvent", function()
+events:RegisterEvent("PLAYER_TALENT_UPDATE")
+events:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_TALENT_UPDATE" then
+        Window.Refresh()
+        return
+    end
+    if scalePending then Window.ApplyScale() end
     if C_Timer and C_Timer.After then C_Timer.After(0, UpdateNote) else UpdateNote() end
 end)
 

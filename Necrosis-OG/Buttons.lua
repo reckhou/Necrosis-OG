@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -58,6 +59,7 @@ local ShowTooltip, HideTooltip = Tips.Show, Tips.Hide
 
 -- run before each click of secure button
 function Buttons.PreClick(button, mouse)
+    if button.summonKey and not InCombat() and Buttons.ConfirmRiskySummon(button, mouse) then return end
     if button.speechSubject and ns.Speech then
         local subject, target = button.speechSubject(mouse)
         if subject then ns.Speech.Speak(subject, target) end
@@ -66,6 +68,7 @@ function Buttons.PreClick(button, mouse)
 end
 
 function Buttons.PostClick(button, mouse)
+    if ns.SoulstoneShortcut then ns.SoulstoneShortcut.ReleaseFarUse(button) end
     if button.onPostClick then button.onPostClick(button, mouse) end
     if ns.Shards and ns.Shards.TryAuto then ns.Shards.TryAuto("add-on button") end
 end
@@ -82,6 +85,7 @@ function Buttons.NewSecureButton(name, parent, size)
     button:SetScript("OnLeave", HideTooltip)
     button:SetScript("PreClick", Buttons.PreClick)
     button:SetScript("PostClick", Buttons.PostClick)
+    ns.Sounds.Button(button)
     return button
 end
 
@@ -166,18 +170,10 @@ table.insert(ns.onSphere, function()
     castEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 end)
 
-local FOCUS_KEYS = { banish = true, fear = true, enslaveDemon = true }
-
--- left click actions to cast the spell
-function Buttons.CastActions(key, id)
+-- click actions to cast the spell
+function Buttons.CastActions(id)
     if not id then return { type1 = false, spell1 = false, macrotext1 = false } end
-    local actions = { type1 = "spell", spell1 = id, macrotext1 = false }
-    local name = ns.db.buttons.autoFocus == true and FOCUS_KEYS[key] and SpellName(id)
-    if name then
-        actions.type1, actions.spell1 = "macro", false
-        actions.macrotext1 = "/focus [harm]\n/cast " .. name
-    end
-    return actions
+    return { type1 = "spell", spell1 = id, macrotext1 = false }
 end
 
 -- tooltip lines for spell
@@ -205,6 +201,8 @@ function Buttons.SlotIcon(slot)
     if texture then return "texture", texture end
     return nil
 end
+
+function Buttons.SlotFrame(slot) return slots[slot] end
 
 -- place shown buttons around sphere by player order
 local function Layout()
@@ -270,14 +268,11 @@ end
 
 -- free the buttons, or keep them around sphere
 function Buttons.SetFree(on)
-    ns.db.buttons.free = on and true or false
-    if not on then ns.db.buttons.places = {} end
-    return Buttons.Refresh()
+    ns.SetSetting("buttons.free", on == true)
 end
 
 function Buttons.ResetPlaces()
-    ns.db.buttons.places = {}
-    return Buttons.Refresh()
+    ns.SetSetting("buttons.places", {})
 end
 
 -- set every action, place and shown state, wait if in combat
@@ -305,6 +300,7 @@ end
 Buttons.STONE_KINDS = Stones.KINDS
 local StoneList = Stones.List
 local stoneButtons = {}
+local weaponSlot
 local held, equipped = Stones.State()
 
 local UpdateCooldowns
@@ -336,6 +332,7 @@ UpdateCooldownParts = function(kind)
     else
         start, duration, hidden, ending = Stones.Cooldown(kind)
     end
+    pcall(button.cooldown.SetReverse, button.cooldown, ending ~= nil)
     if hidden then
         pcall(button.cooldown.SetCooldown, button.cooldown, start, duration)
         Durations.HideText(button.binding, button.timeText)
@@ -344,7 +341,7 @@ UpdateCooldownParts = function(kind)
         return
     end
     local left = ending and math.max(0, ending - GetTime()) or Core.CooldownLeft(start, duration, GetTime())
-    button.cooling = left > 0
+    button.cooling = left > 0 and not ending
     if left > 0 then
         if ending then
             button.cooldown:SetCooldownFromExpirationTime(ending, duration)
@@ -363,20 +360,63 @@ UpdateCooldownParts = function(kind)
     end
 end
 
--- stone picture: none, in bags or on cooldown
+local function AnimateSwitch(button, oldPicture)
+    if button.fadeIn then
+        button.fadeIn:Stop()
+        button.fadeOut:Stop()
+        button.previousIcon:Hide()
+    end
+    if not ns.AnimationsOn() then return end
+    if not button.fadeIn then
+        local previous = button:CreateTexture(nil, "ARTWORK", nil, 1)
+        previous:SetAllPoints(button.icon)
+        if button.previewMask then previous:AddMaskTexture(button.previewMask) end
+        previous:Hide()
+        button.previousIcon = previous
+        button.fadeIn = ns.PopUpAnimation(button.icon:CreateAnimationGroup())
+        button.fadeOut = ns.PopUpAnimation(previous:CreateAnimationGroup())
+        ns.Bars.AlphaStep(button.fadeIn, 0, 1, 0.05)
+        ns.Bars.AlphaStep(button.fadeOut, 1, 0, 0.05)
+        button.fadeOut:SetScript("OnFinished", function() previous:Hide() end)
+    end
+    if oldPicture then
+        button.previousIcon:SetTexture(oldPicture)
+        button.previousIcon:Show()
+        button.fadeOut:Play()
+    end
+    button.fadeIn:Play()
+end
+
+-- stone picture: none, in bags or on cooldown. soulstone show ritual when hold shift
 local function UpdatePicture(kind)
     local button, stone = stoneButtons[kind], STONES[kind]
-    local state = "-01"
-    if ns.demo then
-        state = "-02"
-    elseif stone.onWeapon and equipped[kind] then
-        state = held[kind] and "-03" or "-04"
-    elseif held[kind] then
-        state = "-02"
-    elseif kind == "soulstone" and button.cooling then
-        state = "-03"
+    Buttons.ShowRing(button, true)
+    if kind == "soulstone" then
+        local ritual = not not IsShiftKeyDown()
+        local was = button.showingRitual
+        if was ~= nil and was ~= ritual then AnimateSwitch(button, button.icon:GetTexture()) end
+        button.showingRitual = ritual
+        if was ~= ritual and ns.SummonQueue then ns.SummonQueue.RefreshCues() end
+        button.cooldown:SetAlpha(ritual and 0 or 1)
+        button.timeOverlay:SetShown(not ritual)
+        if ritual then
+            local id = Core.PickSpell({ "ritualOfSummoning" }, Buttons.IsKnown) or Core.SPELLS.ritualOfSummoning[1]
+            local icon = Plain(C_Spell.GetSpellTexture, id)
+            button.icon:SetTexture(icon or Core.UiTexture("TP-01"))
+            button.icon:SetTexCoord(0, 1, 0, 1)
+            button.icon:SetDesaturated(false)
+            return
+        end
     end
-    button.icon:SetTexture(Core.UiTexture(stone.art .. state))
+    local ready = ns.demo or held[kind] ~= nil or (stone.onWeapon and equipped[kind])
+    local icon = held[kind] and C_Item and Plain(C_Item.GetItemIconByID, held[kind].id)
+    if not icon then
+        local id = Core.PickSpell({ stone.create }, Buttons.IsKnown) or Core.SPELLS[stone.create][1]
+        icon = Plain(C_Spell.GetSpellTexture, id)
+    end
+    button.icon:SetTexture(icon or Core.UiTexture(stone.art .. (ready and "-02" or "-01")))
+    button.icon:SetTexCoord(0, 1, 0, 1)
+    button.icon:SetDesaturated(not ready)
 end
 
 UpdateCooldowns = function()
@@ -504,12 +544,19 @@ local function SetStoneActions(kind)
     }
     if kind == "healthstone" then
     elseif STONES[kind].onWeapon then
-        actions.askReplace = (held[kind] ~= nil and equipped[kind] == true) or false
+        actions["shift-type1"], actions["shift-macrotext1"] = actions.type1, actions.macrotext1
+        actions["shift-type2"], actions["shift-spell2"] = actions.type2, actions.spell2
+        actions.askReplace = (held[kind] ~= nil and Stones.MainHandEnchanted()) or false
         Buttons.SetActions(Buttons.replaceButtons[kind], { type1 = actions.type1, macrotext1 = actions.macrotext1 })
     elseif kind == "soulstone" then
         local ritual = Core.HighestKnown(Core.SPELLS.ritualOfSummoning, Buttons.IsKnown)
         actions["shift-type*"] = ritual and "spell" or false
         actions["shift-spell*"] = ritual or false
+        local queue = (ritual ~= nil or ns.demo == true) and ns.SummonQueue ~= nil and ns.SummonQueue.Takes()
+        actions["shift-type2"] = queue and "none" or false
+        local armed = ns.SoulstoneShortcut ~= nil and ns.SoulstoneShortcut.Armed()
+        actions.ssShortcut = armed
+        if armed then actions.type2, actions.spell2 = false, false end
     end
     Buttons.SetActions(button, actions)
 end
@@ -529,12 +576,17 @@ local function StoneTooltip(kind)
         elseif STONES[kind].onWeapon then
             Tips.Click(tooltip, "left", Text.ACT_PUT_ON)
             Tips.Click(tooltip, "right", Text.ACT_CREATE)
+            Tips.Note(tooltip, Text.TIP_WEAPON_STONE_SHIFT)
             Tips.Note(tooltip, Text.TIP_REPLACE_ASKS)
         else
             Tips.Click(tooltip, "left", Text.ACT_USE_FRIEND)
-            Tips.Click(tooltip, "right", Text.ACT_CREATE)
+            Tips.Click(tooltip, "right", button:GetAttribute("ssShortcut") and Text.ACT_SOULSTONE_TARGET
+                or Text.ACT_CREATE)
             local ritual = Core.HighestKnown(Core.SPELLS.ritualOfSummoning, Buttons.IsKnown)
             if ritual then Tips.Click(tooltip, "shift", SpellName(ritual) or "?") end
+            if button:GetAttribute("shift-type2") == "none" then
+                Tips.Click(tooltip, "shiftRight", Text.ACT_SUMMON_QUEUE)
+            end
             local target, at = ns.db.buttons.soulstoneTarget, ns.db.buttons.soulstoneAt
             if type(target) == "string" and target ~= "" and type(at) == "number" and at > 0 then
                 local minutes = math.max(0, math.floor(((GetServerTime and GetServerTime() or time()) - at) / 60))
@@ -547,7 +599,8 @@ end
 local ERROR_SOUND = 847
 
 local function WarnNoStone(kind, mouse)
-    if mouse ~= "LeftButton" or IsUsable(kind) or IsModifierKeyDown() then return end
+    if mouse ~= "LeftButton" or IsUsable(kind) then return end
+    if IsModifierKeyDown() and not (STONES[kind].onWeapon and IsShiftKeyDown()) then return end
     if type(UIErrorsFrame.SuppressMessagesThisFrame) == "function" then UIErrorsFrame:SuppressMessagesThisFrame() end
     ns.Banner(Text[STONES[kind].noStone], 1.0, 0.1, 0.1)
     if not ns.Silent() then PlaySound(ERROR_SOUND) end
@@ -555,7 +608,7 @@ end
 
 local function CreateStoneButton(kind)
     local stone = STONES[kind]
-    local button = Buttons.NewSecureButton(stone.name, sphere, Core.BUTTON_SIZE)
+    local button = Buttons.NewSecureButton(stone.name, stone.onWeapon and weaponSlot or sphere, Core.BUTTON_SIZE)
     button:SetScale(Core.BUTTON_SCALE)
     button.icon:SetTexture(Core.UiTexture(stone.art .. "-01"))
     ns.Rings.Attach(button, button, stone.art)
@@ -563,9 +616,12 @@ local function CreateStoneButton(kind)
     button.onPreClick = function(self, mouse)
         if kind == "soulstone" and mouse == "LeftButton" and self:GetAttribute("type1") == "macro" and not InCombat() then
             self:SetAttribute("macrotext1", Stones.UseMacro(kind))
+            if ns.SoulstoneShortcut and not (IsShiftKeyDown() and self:GetAttribute("shift-type*")) then
+                ns.SoulstoneShortcut.HoldFarUse(self, "target", "macrotext1")
+            end
         end
         if STONES[kind].onWeapon and mouse == "LeftButton" and held[kind] and not self:GetAttribute("askReplace")
-            and not IsModifierKeyDown() then
+            and (not IsModifierKeyDown() or IsShiftKeyDown()) then
             Stones.NoteApplied(kind)
         end
         if kind == "healthstone" then Buttons.PrepareTrade(self, mouse) end
@@ -573,6 +629,11 @@ local function CreateStoneButton(kind)
     end
     if kind == "healthstone" then Buttons.SetTradeAction(button) end
     if kind == "soulstone" then
+        button.onPostClick = function(self, mouse)
+            if mouse == "RightButton" and IsShiftKeyDown() and self:GetAttribute("shift-type2") == "none" then
+                ns.SummonQueue.Toggle()
+            end
+        end
         button.speechSubject = function(mouse)
             if mouse ~= "LeftButton" then return nil end
             if IsShiftKeyDown() then
@@ -580,21 +641,59 @@ local function CreateStoneButton(kind)
                 return "ritualOfSummoning", "target"
             end
             if IsModifierKeyDown() or not held.soulstone then return nil end
+            if ns.SoulstoneShortcut and ns.SoulstoneShortcut.WouldHold("target") then return nil end
             return "soulstone", "friend"
         end
     end
 
+    if kind == "soulstone" and ns.SoulstoneShortcut then ns.SoulstoneShortcut.Attach(button, header) end
+
+    if kind == "soulstone" and ns.RangeCover then ns.RangeCover.AddSoulstone(button) end
+
     button.cooldown = Durations.NewSwipe(button, { level = 4 })
-    button.timeText = Durations.NewTimeText(button, button.cooldown)
+    button.timeText, button.timeOverlay = Durations.NewTimeText(button, button.cooldown)
     button.span = Durations.New()
     button.binding = Durations.Text(button.timeText, "cooldown", "")
+    if kind == "soulstone" and ns.SummonQueue then
+        ns.SummonQueue.AddCue(button, function()
+            return button.showingRitual == true and button:GetAttribute("shift-type2") == "none"
+        end, button.timeOverlay)
+    end
 
     stoneButtons[kind] = button
-    Buttons.AddSlot(kind, button)
+    if stone.onWeapon then
+        button:SetScale(1)
+        button:SetAllPoints(weaponSlot)
+        button:HookScript("OnShow", function()
+            local previous = weaponSlot.lastShownStone
+            weaponSlot.lastShownStone = button
+            if previous and previous ~= button then AnimateSwitch(button, previous.icon:GetTexture()) end
+        end)
+        button:RegisterForDrag("LeftButton")
+        button:SetScript("OnDragStart", function() Buttons.DragStart(weaponSlot) end)
+        button:SetScript("OnDragStop", function() Buttons.DragStop(weaponSlot) end)
+    else
+        Buttons.AddSlot(kind, button)
+    end
 end
 
 Buttons.OnRefresh(function()
     for _, kind in ipairs(Buttons.STONE_KINDS) do SetStoneActions(kind) end
+    local fire, spell = stoneButtons.firestone, stoneButtons.spellstone
+    weaponSlot.wanted = fire.wanted or spell.wanted or Stones.MainHandEnchanted()
+    local current = equipped.firestone and "firestone" or equipped.spellstone and "spellstone"
+        or Stones.WeaponKind(Buttons.IsKnown) or (held.firestone and "firestone" or "spellstone")
+    if weaponSlot.current ~= current then
+        if not weaponSlot.current then
+            weaponSlot.lastShownStone = IsShiftKeyDown() and (current == "firestone" and spell or fire) or stoneButtons[current]
+        end
+        weaponSlot.current = current
+        for _, kind in ipairs({ "firestone", "spellstone" }) do
+            RegisterStateDriver(stoneButtons[kind], "visibility",
+                kind == current and "[mod:shift] hide; show" or "[mod:shift] show; hide")
+        end
+    end
+    weaponSlot.icon = stoneButtons[current].icon
 end)
 
 local events = CreateFrame("Frame")
@@ -610,39 +709,69 @@ local CANCEL_REPLACE = [[
     return false
 ]]
 
-local function DialogButton(name, dialog, text, x)
-    local button = CreateFrame("Button", name, dialog, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-    button:SetSize(120, 22)
-    button:SetPoint("BOTTOM", dialog, "BOTTOM", x, 14)
-    button:SetText(text)
-    button:RegisterForClicks("AnyUp")
-    button:SetAttribute("useOnKeyDown", false)
-    SecureHandlerSetFrameRef(button, "dialog", dialog)
-    return button
+Buttons.replaceButtons = {}
+
+local summonDialog, summonText, confirmSummon, summonBox
+
+local function CreateSummonDialog()
+    summonBox = ns.Dialog.New({ name = "NecrosisOGConfirmSummon", title = Text.CONFIRM_SUMMON_TITLE, secure = true,
+        yesName = "NecrosisOGConfirmSummonYes", noName = "NecrosisOGConfirmSummonNo" })
+    summonDialog, summonText, confirmSummon = summonBox.frame, summonBox.text, summonBox.yes
+    confirmSummon:SetScript("PreClick", function()
+        if ns.Speech and confirmSummon.subject then ns.Speech.Speak(confirmSummon.subject) end
+    end)
+    header:WrapScript(confirmSummon, "OnClick", [[ return nil, true ]], AFTER_REPLACE)
+    summonBox.no:SetText(Text.STONE_REPLACE_NO)
+    header:WrapScript(summonBox.no, "OnClick", CANCEL_REPLACE)
+    summonDialog:SetAttribute("_onstate-combat", [[ if newstate == "yes" then self:Hide() end ]])
+    RegisterStateDriver(summonDialog, "combat", "[combat] yes; no")
 end
 
-Buttons.replaceButtons = {}
+function Buttons.ConfirmRiskySummon(button, mouse)
+    local key = button.summonKey(mouse)
+    if not key then return false end
+    local sacrificing = key == "demonicSacrifice"
+    local buff, risky
+    if sacrificing then
+        buff, risky = ns.Controls.SacrificeReplaceInfo()
+    else
+        buff, risky = ns.Controls.SacrificeInfo(key)
+    end
+    if not risky then return false end
+    local index = mouse == "RightButton" and "2" or "1"
+    local action = button:GetAttribute("type" .. index)
+    if not action then return false end
+    for _, attr in ipairs({ "type", "macrotext", "spell" }) do
+        confirmSummon:SetAttribute(attr .. "1", button:GetAttribute(attr .. index))
+    end
+    confirmSummon.subject = not sacrificing and key or nil
+    summonBox.SetTitle(sacrificing and Text.CONFIRM_SACRIFICE_TITLE or Text.CONFIRM_SUMMON_TITLE)
+    confirmSummon:SetText(sacrificing and Text.SACRIFICE_ANYWAY or Text.SUMMON_ANYWAY)
+    if sacrificing then
+        summonText:SetText(string.format(Text.SACRIFICE_REPLACE_CONFIRM, buff or "?"))
+    else
+        summonText:SetText(string.format(Text.SACRIFICE_CONFIRM, ns.Game.SpellName(Core.SPELLS[key][1]) or "?", buff or "?"))
+    end
+    summonBox.Fit()
+    summonDialog:Show()
+    button:SetAttribute("holdSummon", true)
+    return true
+end
 
 -- dialog to ask replace the weapon stone
 local function CreateReplaceDialog(kind)
     local suffix = kind == "firestone" and "" or "Spellstone"
-    local dialog = CreateFrame("Frame", "NecrosisOGReplaceEnchant" .. suffix, UIParent, "SecureHandlerBaseTemplate")
-    dialog:SetSize(330, 100)
-    dialog:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
-    dialog:SetFrameStrata("DIALOG")
-    local background = dialog:CreateTexture(nil, "BACKGROUND")
-    background:SetAllPoints()
-    background:SetColorTexture(0, 0, 0, 0.85)
-    local text = dialog:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    text:SetPoint("TOP", dialog, "TOP", 0, -16)
-    text:SetWidth(300)
-    text:SetText(string.format(Text.STONE_REPLACE, kind == "spellstone" and Text.SET_BUTTON_SPELLSTONE or Text.SET_BUTTON_FIRESTONE))
-    local replace = DialogButton("NecrosisOGReplaceEnchantYes" .. suffix, dialog, Text.STONE_REPLACE_YES, -66)
+    local box = ns.Dialog.New({ name = "NecrosisOGReplaceEnchant" .. suffix, title = Text.CONFIRM_REPLACE_TITLE, secure = true,
+        yesName = "NecrosisOGReplaceEnchantYes" .. suffix, noName = "NecrosisOGReplaceEnchantNo" .. suffix })
+    local dialog = box.frame
+    box.text:SetText(string.format(Text.STONE_REPLACE, kind == "spellstone" and Text.SET_BUTTON_SPELLSTONE or Text.SET_BUTTON_FIRESTONE))
+    local replace = box.yes
+    replace:SetText(Text.STONE_REPLACE_YES)
     replace:SetScript("PreClick", function() Stones.NoteApplied(kind) end)
     header:WrapScript(replace, "OnClick", [[ return nil, true ]], AFTER_REPLACE)
-    local cancel = DialogButton("NecrosisOGReplaceEnchantNo" .. suffix, dialog, Text.STONE_REPLACE_NO, 66)
-    header:WrapScript(cancel, "OnClick", CANCEL_REPLACE)
-    dialog:Hide()
+    box.no:SetText(Text.STONE_REPLACE_NO)
+    header:WrapScript(box.no, "OnClick", CANCEL_REPLACE)
+    box.Fit()
     Buttons.replaceButtons[kind] = replace
     if kind == "firestone" then Buttons.replaceButton = replace end
     local stoneButton = stoneButtons[kind]
@@ -652,6 +781,20 @@ local function CreateReplaceDialog(kind)
 end
 
 local sphereButton
+local modifierIcons = {}
+
+local function UpdateSpherePreview()
+    if not sphereButton then return end
+    local ctrl, shift = IsControlKeyDown(), IsShiftKeyDown()
+    local icon
+    if ctrl and not shift then icon = modifierIcons.ctrlLeft end
+    if shift and not ctrl then icon = modifierIcons.shiftLeft end
+    if sphereButton.previewIcon == icon then return end
+    AnimateSwitch(sphereButton, sphereButton.previewIcon)
+    sphereButton.previewIcon = icon
+    sphereButton.icon:SetTexture(icon)
+    ns.Sphere.SetPreviewShown(icon ~= nil)
+end
 
 -- "bags", spell id or nil
 local function SphereClickAction(key)
@@ -665,20 +808,24 @@ local function RefreshSphereButton()
     if not sphereButton then return end
     for _, click in ipairs(Core.SPHERE_CLICKS) do
         local action, entry = SphereClickAction(click.key)
+        if click.key == "ctrlLeft" or click.key == "shiftLeft" then
+            modifierIcons[click.key] = type(action) == "number" and Plain(C_Spell.GetSpellTexture, action) or nil
+        end
         local actions = { type1 = "none", spell1 = false, macrotext1 = false }
-        if type(action) == "number" then actions = Buttons.CastActions(entry.keys[1], action) end
+        if type(action) == "number" then actions = Buttons.CastActions(action) end
         for name, value in pairs(actions) do
             local attribute = click.prefix .. name:gsub("1$", click.button)
             if value == false then sphereButton:SetAttribute(attribute, nil) else sphereButton:SetAttribute(attribute, value) end
         end
     end
+    UpdateSpherePreview()
 end
 
 Buttons.OnRefresh(RefreshSphereButton)
 
 -- sphere tooltip, each click and what it do
 local function SphereTooltip(tooltip)
-    Tips.Title(tooltip, Text.SETTINGS_TITLE, 0.6, 0.4, 1)
+    Tips.Title(tooltip, Core.Gradient(Text.SETTINGS_TITLE, Core.GRADIENT_TITLE), 0.6, 0.4, 1)
     for _, click in ipairs(Core.SPHERE_CLICKS) do
         local action = SphereClickAction(click.key)
         local what = action == "bags" and Text.SET_CLICK_BAGS or (action and SpellName(action))
@@ -692,6 +839,14 @@ local function CreateSphereButton()
     local button = Buttons.NewSecureButton("NecrosisOGSphereButton", sphere, Core.SPHERE_SIZE)
     button:ClearAllPoints()
     button:SetAllPoints(sphere)
+    button.icon:ClearAllPoints()
+    button.icon:SetSize(Core.SPHERE_SIZE * 0.54, Core.SPHERE_SIZE * 0.54)
+    button.icon:SetPoint("CENTER")
+    local mask = button:CreateMaskTexture()
+    mask:SetTexture(Core.UiTexture("Mask"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    mask:SetAllPoints(button.icon)
+    button.icon:AddMaskTexture(mask)
+    button.previewMask = mask
     button:SetFrameLevel(sphere:GetFrameLevel() + 1)
     button:RegisterForDrag("LeftButton")
     button:SetScript("OnDragStart", function() local drag = sphere:GetScript("OnDragStart"); if drag then drag(sphere) end end)
@@ -727,7 +882,11 @@ local function CreateAll(frame)
     sphere = frame
     header = CreateFrame("Frame", "NecrosisOGButtonHeader", UIParent, "SecureHandlerBaseTemplate")
     CreateSphereButton()
+    weaponSlot = CreateFrame("Frame", "NecrosisOGWeaponStoneButton", sphere)
+    weaponSlot:SetSize(Core.BUTTON_SIZE, Core.BUTTON_SIZE)
+    Buttons.AddSlot("weaponStone", weaponSlot)
     for _, kind in ipairs(Buttons.STONE_KINDS) do CreateStoneButton(kind) end
+    CreateSummonDialog()
     CreateReplaceDialog("firestone")
     CreateReplaceDialog("spellstone")
     ns.Fire(creators, sphere, header)
@@ -789,7 +948,7 @@ local function MacroText(key)
         local amplify = Core.HighestKnown(Core.SPELLS.amplifyCurse, Buttons.IsKnown)
         return Core.CURSE_MACROS[key], Core.AmplifyMacroBody(amplify and SpellName(amplify), spellName)
     end
-    return Core.FOCUS_MACROS[key], Core.FocusMacroBody(spellName, ns.db.buttons.autoFocus == true)
+    return Core.FOCUS_MACROS[key], Core.FocusMacroBody(spellName)
 end
 
 -- text of the macro without the icon line
@@ -820,8 +979,7 @@ end
 
 function Buttons.SyncFocusMacros()
     if not macrosReady or InCombat() or not MacrosAvailable() then return end
-    local focus = ns.db.buttons.autoFocus == true
-    for _, key in ipairs(Core.FOCUS_MACRO_KEYS) do SyncFocusMacro(key, focus) end
+    for _, key in ipairs(Core.FOCUS_MACRO_KEYS) do SyncFocusMacro(key, true) end
     for _, key in ipairs(Core.STONE_MACRO_KEYS) do SyncFocusMacro(key, false) end
     for _, key in ipairs(Core.CURSE_MACRO_KEYS) do SyncFocusMacro(key, false) end
     for _, key in ipairs(Core.PET_MACRO_KEYS) do SyncFocusMacro(key, false) end
@@ -833,7 +991,7 @@ table.insert(ns.onSpellsChanged, function()
     if InCombat() then
         pending = true
     else
-        SyncFocusMacro("seduction", ns.db.buttons.autoFocus == true)
+        SyncFocusMacro("seduction", true)
     end
 end)
 
@@ -873,6 +1031,13 @@ handlers.PLAYER_REGEN_ENABLED = function()
 end
 
 handlers.SPELLS_CHANGED = function() Buttons.Refresh() end
+handlers.MODIFIER_STATE_CHANGED = function(key)
+    UpdateSpherePreview()
+    if stoneButtons.soulstone and (key == "LSHIFT" or key == "RSHIFT") then
+        UpdatePicture("soulstone")
+    end
+end
+
 handlers.LEARNED_SPELL_IN_SKILL_LINE = function() Buttons.Refresh() end
 
 local function SyncStoneMacro()
@@ -922,7 +1087,7 @@ table.insert(ns.onDemoData, function(on)
     end
 end)
 
-Buttons.Stone = function(kind) return stoneButtons[kind], held[kind], equipped[kind] end -- for tests
+Buttons.Stone = function(kind) return stoneButtons[kind], held[kind], equipped[kind] end  -- for tests
 Buttons.Header = function() return header end
 Buttons.SphereButton = function() return sphereButton end
 Buttons.IsPending = function() return pending end
@@ -937,13 +1102,10 @@ end
 
 function Buttons.SetMenuShift(menu, axis, value)
     if menu ~= "demons" and menu ~= "utility" and menu ~= "curses" then return end
-    local all = ns.db.buttons.menuOffset
-    if type(all) ~= "table" then all = {}; ns.db.buttons.menuOffset = all end
-    if type(all[menu]) ~= "table" then all[menu] = {} end
-    all[menu][axis == 1 and "x" or "y"] = Core.ClampMenuShift(value)
-    Buttons.Refresh()
+    local field = axis == 1 and "x" or "y"
+    ns.SetSetting("buttons.menuOffset." .. menu .. "." .. field, Core.ClampMenuShift(value))
 end
 
-ns.OnSetting({ "buttons.autoFocus", "buttons.ringOrder", "buttons.menuOrder", "buttons.menuOff",
-    "buttons.menuCloses", "buttons.menuDirection", "sphere.clicks", "sphere.buttonSize", "sphere.rotation",
+ns.OnSetting({ "buttons.free", "buttons.places", "buttons.ringOrder", "buttons.menuOrder", "buttons.menuOff",
+    "buttons.menuCloses", "buttons.menuDirection", "buttons.menuOffset", "sphere.clicks", "sphere.buttonSize", "sphere.rotation",
     "sphere.spacing", "sphere.distance", "controlButtons", "reminderBar.on", "reminderBar.scale", "reminderBar.spacing" }, function() Buttons.Refresh() end)

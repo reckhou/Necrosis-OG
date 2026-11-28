@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -27,7 +28,8 @@ Core.DEMO = {
     stoneCooldowns = { healthstone = 20, soulstone = 8 },
     controls = { { key = "banish", length = 12 }, { key = "fear", length = 8 }, { key = "enslaveDemon", length = 16 } },
     focusLengths = { banish = 12, seduction = 9, fear = 7, curseOfRecklessness = 14, curseOfWeakness = 11, deathCoil = 6 },
-    focusOutOfRange = "deathCoil",
+    deathCoilCooldown = 9,
+    focusOutOfRange = "fear",
     enemyTargetStep = 3,
     enemies = {
         { portrait = "voidwalker", health = 85, threat = 100,
@@ -38,13 +40,48 @@ Core.DEMO = {
     procs = { "shadowTrance", "decimation", "amplifyCurse", "antiFear" },
     procStep = 2.5,
     sacrificeStep = 3,
+    glowPreview = 10,
     reminderStep = 2.5,
     reminderSizes = { 3, 4, 3, 2, 4, 3 },
     missingStep = 2.5,
     missingSets = { { 1, 2, 3, 4, 5, 6 }, { 2, 3, 5, 6 }, { 3, 6 }, { 6 }, {}, { 1, 3, 4 }, { 1, 2, 4, 6 } },
+    summon = {
+        restart = 100, helpers = 2, shards = 5,
+        waiting = { { name = "Aldric", class = "WARRIOR", role = "TANK", waited = 48 }, { name = "Mirela", class = "PRIEST", role = "HEALER", waited = 12 } },
+        offered = { name = "Torvin", class = "PALADIN", left = 95 },
+        expired = { name = "Sefa", class = "MAGE" },
+        away = { { name = "Garrick", class = "ROGUE" }, { name = "Ylva", class = "DRUID", role = "HEALER", reason = "inDungeon" },
+            { name = "Orin", class = "HUNTER", reason = "offline" }, { name = "Brenna", class = "MAGE" },
+            { name = "Rowan", class = "WARRIOR" }, { name = "Kestrel", class = "ROGUE" } },
+    },
     shardStep = 0.5,
-    threatStep = 0.25, threatPerStep = 5,
+    threatStep = 2, threatLevels = { 0, 40, 20, 80, 60, 100 },
 }
+
+function Core.DemoSummon(now, zone, group)
+    local made = Core.DEMO.summon
+    local queue, members = Core.NewSummonQueue(), {}
+    local function Member(who)
+        local member = { name = who.name, class = who.class, role = who.role, zone = zone, online = who.reason ~= "offline",
+            inDungeon = who.reason == "inDungeon" }
+        members[#members + 1] = member
+        return member
+    end
+    for _, who in ipairs(made.waiting) do Core.SummonRequest(queue, Member(who), now - who.waited) end
+    local offered = Member(made.offered)
+    Core.SummonClicked(queue, offered, now)
+    Core.SummonStatus(queue, offered, Core.SUMMON_STATUS.pending, now)
+    Core.SummonFind(queue, offered).endsAt = now + made.offered.left
+    local expired = Member(made.expired)
+    Core.SummonStatus(queue, expired, Core.SUMMON_STATUS.pending, now)
+    local entry = Core.SummonFind(queue, expired)
+    entry.state, entry.byOther, entry.closedAt = "expired", false, now
+    if group ~= "party" then
+        for _, who in ipairs(made.away) do Member(who) end
+    end
+    return { queue = queue, members = members, helpers = made.helpers, shards = made.shards,
+        raid = group == "raid", now = now }
+end
 
 function Core.DemoBounce(step, top)
     if top <= 0 then return 0 end

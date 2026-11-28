@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -23,29 +24,33 @@ local Core = {}
 ns.Core = Core
 
 Core.DEFAULTS = {
-    version = 27,
+    version = 33,
     locked = false,
+    soundsOn = true,
     tooltips = true,
     skin = "Rose",
     font = "friz",
     textSize = 100,
     language = "auto",
-    windowScale = 100,
+    windowScale = 110,
     barTexture = "blizzard",
     sphere = {
-        point = "CENTER", relativePoint = "CENTER", x = 0, y = -200,
-        scale = 120,
+        point = "CENTER", relativePoint = "CENTER", x = 149.33, y = -84.67,
+        scale = 100,
         showCount = true,
         showThreat = true,
+        soulOrbsAnimation = true,
         lowShards = 3,
         rotation = 180,
         spacing = 1,
         distance = 1,
-        buttonSize = 1.1,
-        clicks = { left = "demonSkin", middle = "unendingBreath", ctrlLeft = "eyeOfKilrogg", shiftLeft = "ritualOfSummoning" },
+        buttonSize = 1.0,
+        clicks = { left = "demonSkin", middle = "bags", ctrlLeft = "shadowWard", shiftLeft = "none" },
+        autoHide = { on = false, combatShow = true, fadedAlpha = 0.3 },
     },
     buttons = {
         weaponStone = "",
+        sacAuraDemons = {},
         sacAuras = {},
         lastDemon = "",
         lastCurse = "",
@@ -56,16 +61,15 @@ Core.DEFAULTS = {
         soulstoneTarget = "",
         soulstoneLength = 0,
         soulstoneAt = 0,
-        shardLimit = 16,
+        shardLimit = -1,
         autoDestroy = false,
-        show = { firestone = true, spellstone = true, healthstone = true, soulstone = true, utility = true,
+        show = { weaponStone = true, healthstone = true, soulstone = true, utility = true,
             mount = true, demons = true, curses = true, shards = true },
         firestone = 0, spellstone = 0,
         learnedStones = { healthstone = {}, soulstone = {}, firestone = {}, spellstone = {} },
         menuDirection = { demons = "up", utility = "up", curses = "up" },
         menuOffset = { demons = { x = 0, y = 0 }, utility = { x = 0, y = 0 }, curses = { x = 0, y = 0 } },
         menuCloses = true,
-        autoFocus = true,
         menuOrder = { demons = {}, utility = {}, curses = {} },
         menuOff = { demons = {}, utility = {}, curses = {} },
         ringOrder = {},
@@ -75,17 +79,17 @@ Core.DEFAULTS = {
     timers = {
         warnSound = true,
         sounds = { enslaveDemon = true },
-        controlOn = true,
+        controlOn = false,
         scales = { focus = 100, multi = 100 },
         grow = { multi = "down" },
-        focus = { point = "BOTTOMLEFT", relativePoint = "CENTER", x = 100, y = -235 },
-        multi = { point = "BOTTOMLEFT", relativePoint = "CENTER", x = -320, y = -235 },
-        focusOn = true,
-        multiOn = true,
+        focus = { point = "BOTTOMLEFT", relativePoint = "BOTTOMLEFT", x = 1004, y = 675.5 },
+        multi = { point = "BOTTOMLEFT", relativePoint = "BOTTOMLEFT", x = 1311, y = 666.5 },
+        focusOn = false,
+        multiOn = false,
         trackOff = {},
         trackOrder = {},
-        targetReminder = { on = true, scale = 120, opacity = 65, x = 159, y = -166 },
-        plateReminder = { on = true, scale = 100, opacity = 50, x = 0, y = -10 },
+        targetReminder = { on = false, scale = 120, opacity = 65, x = 210, y = 48 },
+        plateReminder = { on = false, scale = 100, opacity = 50, x = 0, y = -10 },
         barHighlight = { on = true },
         wrackHelper = { on = true },
         focusOff = {},
@@ -97,37 +101,40 @@ Core.DEFAULTS = {
         sounds = { antiFear = true, shadowTrance = true, decimation = true, amplifyCurse = true, unendingBreath = true,
             soulstone = true },
         shadowTranceOn = true, decimationOn = true, amplifyCurseOn = true,
-        sacrificeOn = true, sacrificeAt = 30,
+        glows = { on = true, shadowTrance = true, decimation = true },
+        sacrificeOn = true, sacrificeAt = 20, healthFunnelOn = true, healthFunnelAt = 30,
         lengths = {},
     },
     controlButtons = {
-        armour = { on = true, safeHide = "narrow" }, healthstone = { on = true, safeHide = "narrow" },
-        soulLink = { on = true, safeHide = "narrow" }, demon = { on = true, safeHide = "narrow" },
-        sacrifice = { on = true, safeHide = "narrow" }, weaponStone = { on = true, safeHide = "narrow" },
-        soulstone = { on = true, safeHide = "narrow" }, unendingBreath = { on = true },
+        armour = { on = true }, healthstone = { on = true },
+        soulLink = { on = true }, demon = { on = true },
+        sacrifice = { on = true, preferred = "", keep = "" }, weaponStone = { on = true },
+        soulstone = { on = true }, unendingBreath = { on = true },
     },
-    reminderBar = { on = true, point = "CENTER", relativePoint = "CENTER", x = 0, y = -110, scale = 100, spacing = 0, opacity = 100 },
-    procBar = { on = true, point = "CENTER", relativePoint = "CENTER", x = 0, y = 70, scale = 100, spacing = 0, opacity = 100 },
+    reminderBar = { on = true, hideInCities = true, point = "CENTER", relativePoint = "BOTTOMLEFT", x = 838, y = 532.5, scale = 100, spacing = 0, opacity = 100 },
+    procBar = { on = true, point = "CENTER", relativePoint = "BOTTOMLEFT", x = 841, y = 681.5, scale = 100, spacing = 0, opacity = 100 },
     animation = { on = true, speed = 1 },
     speech = { on = true, channel = "SAY", sets = {}, petNames = {}, off = {} },
+    summon = { autoOpen = true, listen = { whisper = true, group = true },
+        requestWords = "123\nsum\nsummon", x = 746, y = 40 },
     settingsWindow = { point = "TOPLEFT", relativePoint = "TOPLEFT", x = 100, y = -100 },
 }
 
 Core.FIRST_RUN = {
     menuOrder = {
-        demons = { "healthFunnel", "imp", "voidwalker", "succubus", "incubus", "felhunter", "inferno", "ritualOfDoom",
-            "soulLink", "demonicSacrifice", "enslaveDemon", "senseDemons", "felDomination" },
-        utility = { "demonSkin", "unendingBreath", "detectInvisibility", "eyeOfKilrogg", "ritualOfSummoning",
-            "shadowWard", "lifeTap", "drainSoul", "drainMana", "banish", "fear", "howlOfTerror" },
+        demons = { "healthFunnel", "enslaveDemon", "demonicSacrifice", "imp", "voidwalker", "succubus", "incubus",
+            "felhunter", "inferno", "ritualOfDoom", "soulLink", "senseDemons", "felDomination" },
+        utility = { "shadowWard", "ritualOfSummoning", "demonSkin", "unendingBreath", "detectInvisibility",
+            "eyeOfKilrogg", "lifeTap", "drainSoul", "drainMana", "banish", "fear", "howlOfTerror" },
         curses = { "curseOfElements", "baneOfAgony", "baneOfHavoc", "curseOfRecklessness", "curseOfWeakness",
             "curseOfTongues", "curseOfExhaustion", "baneOfDoom", "amplifyCurse" },
     },
     menuOff = {
-        demons = { "soulLink", "senseDemons" },
+        demons = { "soulLink", "senseDemons", "felDomination" },
         utility = { "lifeTap", "drainSoul", "drainMana", "banish", "fear", "howlOfTerror" },
         curses = {},
     },
-    trackOff = { "immolate" },
+    trackOff = { "curse", "immolate" },
 }
 
 local function copy(value)
@@ -171,6 +178,38 @@ end
 
 -- one step for each old version, take table from N to N + 1
 Core.MIGRATIONS = {
+    [32] = function(saved)
+        local sphere = saved.sphere
+        if type(sphere) == "table" and Core.IsNumber(sphere.scale) then
+            sphere.scale = Core.RoundToStep(sphere.scale / Core.SPHERE_FACTOR, Core.SCALE_STEP)
+        end
+    end,
+    [31] = function(saved)
+        local votes = 0
+        local reminders = type(saved.controlButtons) == "table" and saved.controlButtons or {}
+        for _, key in ipairs(Core.CONTROL_BUTTON_KEYS) do
+            local entry = reminders[key]
+            if type(entry) == "table" then
+                if not Core.CONTROL_BUTTONS[key].alwaysShow and entry.on ~= false then
+                    votes = votes + (entry.safeHide == "off" and -1 or 1)
+                end
+                entry.safeHide = nil
+            elseif not Core.CONTROL_BUTTONS[key].alwaysShow then
+                votes = votes + 1
+            end
+        end
+        if type(saved.reminderBar) ~= "table" then saved.reminderBar = {} end
+        if type(saved.reminderBar.hideInCities) ~= "boolean" then saved.reminderBar.hideInCities = votes >= 0 end
+    end,
+    [30] = function(saved)
+        if type(saved.buttons) == "table" then saved.buttons.autoFocus = nil end
+    end,
+    [29] = function(saved)
+        local buttons = saved.buttons
+        if type(buttons) == "table" and Core.IsNumber(buttons.shardLimit) then
+            buttons.shardLimit = math.max(1, math.floor(buttons.shardLimit))
+        end
+    end,
     -- 25 -> 26: size sliders have new step, so round saved values
     [25] = function(saved)
         RoundField(saved.sphere, "scale", Core.SCALE_STEP)
@@ -184,6 +223,41 @@ Core.MIGRATIONS = {
         end
         RoundField(saved.reminderBar, "scale", Core.SCALE_STEP)
         RoundField(saved.procBar, "scale", Core.SCALE_STEP)
+    end,
+    [28] = function(saved)
+        local summon = saved.summon
+        if type(summon) ~= "table" then return end
+        local listen = summon.listen
+        if type(listen) == "table" then
+            listen.group = listen.party ~= false or listen.raid ~= false
+            listen.party, listen.raid = nil, nil
+        end
+        if type(summon.requestWords) == "string" then
+            summon.requestWords = table.concat(Core.SummonWords(summon.requestWords), "\n")
+        end
+        summon.on, summon.whisperOn, summon.whisperText = nil, nil, nil
+    end,
+    [27] = function(saved)
+        local buttons = saved.buttons
+        if type(buttons) ~= "table" then return end
+        local show = type(buttons.show) == "table" and buttons.show or {}
+        local order = type(buttons.ringOrder) == "table" and buttons.ringOrder or {}
+        local chosen
+        for _, slot in ipairs(order) do
+            if (slot == "firestone" or slot == "spellstone") and show[slot] ~= false then chosen = slot; break end
+        end
+        chosen = chosen or (show.spellstone == false and "firestone" or "spellstone")
+        show.weaponStone = show.firestone ~= false or show.spellstone ~= false
+        show.firestone, show.spellstone = nil, nil
+        buttons.show = show
+        for i = #order, 1, -1 do
+            if order[i] == chosen then order[i] = "weaponStone"
+            elseif order[i] == "firestone" or order[i] == "spellstone" then table.remove(order, i) end
+        end
+        if type(buttons.places) == "table" then
+            buttons.places.weaponStone = buttons.places[chosen]
+            buttons.places.firestone, buttons.places.spellstone = nil, nil
+        end
     end,
     [26] = function(saved)
         if type(saved.speech) == "table" then Core.DropOldSpeechDefaults(saved.speech.sets) end
@@ -200,6 +274,23 @@ function Core.Migrate(saved)
     end
     return saved
 end
+
+Core.SOUND_LIST = {
+    { title = "SETTINGS_TAB_ALERTS", entries = {
+        { "alerts.sounds.shadowTrance", nil, "shadowTrance" },
+        { "alerts.sounds.amplifyCurse", nil, "amplifyCurse" },
+        { "alerts.sounds.decimation", nil, "decimation" },
+        { "alerts.sounds.antiFear", nil, "antiFear" },
+    } },
+    { title = "SETTINGS_TAB_CONTROLS", entries = {
+        { "timers.warnSound", "SET_WARN_SOUND" },
+        { "timers.sounds.enslaveDemon", "SET_SOUND_DEMON" },
+    } },
+    { title = "SETTINGS_TAB_REMINDERS", entries = {
+        { "alerts.sounds.soulstone", "SET_SOUND_SOULSTONE" },
+        { "alerts.sounds.unendingBreath", "SET_SOUND_BREATH" },
+    } },
+}
 
 -- settings for new charactor
 function Core.NewSettings()
@@ -408,6 +499,7 @@ end
 Core.SOUL_SHARD_ITEM = 6265
 Core.HEARTHSTONE_ITEM = 6948
 Core.SPHERE_SIZE = 58
+Core.SPHERE_FACTOR = 1.5
 Core.SCALE_MIN, Core.SCALE_MAX, Core.SCALE_STEP = 50, 200, 10
 Core.SHARD_COUNT_MAX = 32
 
@@ -421,6 +513,8 @@ end
 
 function Core.ClampSphereScale(scale) return Core.ClampScale(scale, Core.DEFAULTS.sphere.scale) end
 
+function Core.SphereFrameScale(scale) return Core.ClampSphereScale(scale) / 100 * Core.SPHERE_FACTOR end
+
 function Core.ClampThreshold(threshold)
     if not isNumber(threshold) then return Core.DEFAULTS.sphere.lowShards end
     return math.max(0, math.min(Core.SHARD_COUNT_MAX, math.floor(threshold)))
@@ -433,38 +527,28 @@ function Core.ShardCountText(count, threshold, limit)
     local text = (count < 10) and ("0" .. count) or tostring(count)
     local red = count < Core.ClampThreshold(threshold)
     if limit ~= nil then
-        limit = Core.ClampShardLimit(limit)
+        limit = Core.ShardLimit(limit)
         text = text .. "/" .. ((limit < 10) and ("0" .. limit) or tostring(limit))
         red = red or count > limit
     end
     return text, red
 end
 
-Core.ALERT_KEYS = { "shadowTrance", "decimation", "amplifyCurse", "antiFear" }
+Core.ALERT_KEYS = { "shadowTrance", "amplifyCurse", "decimation", "antiFear" }
 
 Core.BREATH_TIMER = "BREATH"
 
 Core.BREATH_SOUND_GAP = 30
 Core.MIRROR_TIMER_SLOTS = 3
 
-Core.SAFE_LEVELS = { "off", "narrow", "wide" }
-
 Core.SAFE_AREA_GRACE = 30
+Core.REMINDER_DISMISS_SECONDS = 1800
 
-function Core.SafeLevelOrDefault(value)
-    for _, level in ipairs(Core.SAFE_LEVELS) do
-        if level == value then return value end
-    end
-    return "narrow"
-end
-
--- if reminder should hide in safe area now
-function Core.SafeAreaHides(level, state)
-    if level ~= "narrow" and level ~= "wide" then return false end
-    if type(state) ~= "table" or state.inCombat or state.instance then return false end
+-- if reminder should hide in city or inn now
+function Core.SafeAreaHides(on, state)
+    if on ~= true or type(state) ~= "table" or state.inCombat or state.instance then return false end
     if Core.SafeAreaGraceLeft(state.secondsSinceCombat) > 0 then return false end
-    if state.resting == true or state.zoneType == "sanctuary" then return true end
-    return level == "wide" and state.zoneType == "friendly"
+    return state.resting == true or state.zoneType == "sanctuary"
 end
 
 function Core.TravelHides(key, state)

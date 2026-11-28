@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -24,14 +25,25 @@ local InCombat = ns.Game.InCombat
 local Panel = {}
 ns.UnlockPanel = Panel
 
-local BUTTON_HEIGHT = 22
-local BUTTON_BOTTOM = 14
-local PRESET_Y = -20
-local PRESET_GAP = 7
-local FRAMES_HEAD_Y = -58
-local FRAMES_TOP_Y = -78
-local FRAME_STEP = 28
+local PADDING, TITLE_HEIGHT = 14, 24
+local BODY_TOP = PADDING + TITLE_HEIGHT
+local INNER_WIDTH = 220
+local HEAD_HEIGHT = 16
+local BUTTON_HEIGHT = 20
+local LOOK_ROW = 26
+local PRESET_GAP = 4
+local SECTION_GAP = 8
+local FRAME_STEP = 22
+local FOOTER_GAP, FOOTER_HEIGHT = 6, 20
 local ACTION_GAP = 6
+local POPOUT_BACKDROP = {
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true,
+    tileSize = 32,
+    edgeSize = 24,
+    insets = { left = 6, right = 6, top = 6, bottom = 6 },
+}
 
 local panel
 local hidingForWelcome = false
@@ -39,18 +51,18 @@ local reopenSettings = false
 
 local function db() return ns.db end
 
-local function Heading(page, text, y)
-    local label = page:CreateFontString(nil, "ARTWORK", "SystemFont_Shadow_Small_Outline")
-    label:SetPoint("TOPLEFT", page, "TOPLEFT", 0, y)
+local function Heading(parent, text, y)
+    local label = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    label:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
     label:SetJustifyH("LEFT")
-    label:SetText(Core.Gradient(text, Core.GRADIENT_HEADING))
-    ns.SettingsWindow.FitText(label, ns.SettingsWindow.PAGE_WIDTH)
+    label:SetText(ns.Core.Gradient(text, ns.Core.GRADIENT_HEADING))
+    ns.SettingsWindow.FitText(label, INNER_WIDTH)
     return label
 end
 
 -- make button, refresh the panel after click
-local function Button(page, text, width, onClick)
-    local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+local function Button(parent, text, width, onClick)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     button:SetSize(width, BUTTON_HEIGHT)
     button:SetText(text)
     ns.SettingsWindow.FitButton(button)
@@ -58,6 +70,7 @@ local function Button(page, text, width, onClick)
         onClick()
         Panel.Refresh()
     end)
+    ns.Sounds.Button(button)
     return button
 end
 
@@ -90,55 +103,125 @@ local function Closed()
 end
 
 local function Create()
-    panel = CreateFrame("Frame", "NecrosisOGUnlockFrame", UIParent)
-    local _, heading = ns.SettingsWindow.ClassicFrame(panel, Text.SETTINGS_TITLE)
-    heading:SetText(Text.UNLOCK_HEADING)
-    panel.heading = heading
+    panel = CreateFrame("Frame", "NecrosisOGUnlockFrame", UIParent, "BackdropTemplate")
+    ns.SettingsWindow.TrackScale(panel)
+    panel:SetFrameStrata("DIALOG")
+    panel:SetClampedToScreen(true)
+    panel:EnableMouse(true)
+    panel:SetMovable(true)
+    panel:RegisterForDrag("LeftButton")
+    if panel.SetBackdrop then panel:SetBackdrop(POPOUT_BACKDROP) end
+    panel:SetScript("OnDragStart", panel.StartMoving)
     panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
-    panel:SetPoint("TOP", UIParent, "TOP", 0, -60)
+    panel:SetPoint("LEFT", UIParent, "LEFT", 20, 0)
 
-    local page = ns.SettingsWindow.NewPage(panel)
+    local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    heading:SetPoint("TOP", panel, "TOP", 0, -PADDING)
+    heading:SetJustifyH("CENTER")
+    heading:SetText(Core.Gradient(Text.UNLOCK_HEADING, Core.GRADIENT_TITLE))
+    panel.heading = heading
+
+    local divider = panel:CreateTexture(nil, "ARTWORK")
+    divider:SetPoint("TOPLEFT", panel, "TOPLEFT", PADDING, -(PADDING + TITLE_HEIGHT - 4))
+    divider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PADDING, -(PADDING + TITLE_HEIGHT - 4))
+    divider:SetSize(1, 1)
+    divider:SetColorTexture(0.78, 0.65, 0.35, 0.45)
+    panel.divider = divider
+
+    local close = CreateFrame("Button", "NecrosisOGUnlockClose", panel, "UIPanelCloseButton")
+    close:SetSize(26, 26)
+    close:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -5, -5)
+    close:SetScript("OnClick", function() panel:Hide() end)
+    ns.Sounds.Button(close)
+    panel.close = close
+
+    local page = CreateFrame("Frame", nil, panel)
+    page:SetPoint("TOPLEFT", panel, "TOPLEFT", PADDING, -BODY_TOP)
     panel.page = page
 
-    Heading(page, Text.UNLOCK_PRESETS, 0)
+    local y = 0
+
+    Heading(page, Text.UNLOCK_PRESETS, y)
+    y = y + HEAD_HEIGHT
     panel.presets = {}
     local count = #Core.LAYOUT_PRESET_ORDER
-    local presetWidth = math.floor((ns.SettingsWindow.PAGE_WIDTH - PRESET_GAP * (count - 1)) / count)
+    local presetWidth = math.floor((INNER_WIDTH - PRESET_GAP * (count - 1)) / count)
     for i, key in ipairs(Core.LAYOUT_PRESET_ORDER) do
         local preset = Core.LAYOUT_PRESETS[key]
         local button = Button(page, Text[preset.label], presetWidth, function() ApplyPreset(key) end)
-        button:SetPoint("TOPLEFT", page, "TOPLEFT", (i - 1) * (presetWidth + PRESET_GAP), PRESET_Y)
+        button:SetPoint("TOPLEFT", page, "TOPLEFT", (i - 1) * (presetWidth + PRESET_GAP), -y)
         panel.presets[key] = button
     end
+    y = y + BUTTON_HEIGHT + SECTION_GAP
 
-    Heading(page, Text.UNLOCK_FRAMES, FRAMES_HEAD_Y)
+    Heading(page, Text.UNLOCK_FRAMES, y)
+    y = y + HEAD_HEIGHT
     panel.checks = {}
+    local labelWidth = INNER_WIDTH - 24
     for i, entry in ipairs(Core.FRAME_LIST) do
         local box = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
-        box:SetSize(26, 26)
-        box:SetPoint("TOPLEFT", page, "TOPLEFT", 0, FRAMES_TOP_Y - (i - 1) * FRAME_STEP)
+        box:SetSize(22, 22)
+        box:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -(y + (i - 1) * FRAME_STEP))
         box.label = box:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         box.label:SetPoint("LEFT", box, "RIGHT", 2, 0)
         box.label:SetJustifyH("LEFT")
-        box.label:SetWidth(ns.SettingsWindow.PAGE_WIDTH - 30)
+        if box.label.SetWordWrap then box.label:SetWordWrap(false) end
+        box.label:SetWidth(labelWidth)
         box.label:SetText(Text[entry.label])
+        ns.SettingsWindow.FitText(box.label, labelWidth)
         box:SetScript("OnClick", function(self)
             ToggleFrame(entry, self:GetChecked() == true)
             Panel.Refresh()
         end)
+        ns.Sounds.Check(box)
         panel.checks[entry.key] = box
     end
+    y = y + #Core.FRAME_LIST * FRAME_STEP + SECTION_GAP
 
-    local actionWidth = math.floor((ns.SettingsWindow.PAGE_WIDTH - 8 - ACTION_GAP) / 2)
-    panel.demoButton = Button(page, Text.SET_DEMO_START, actionWidth, function() ns.SetDemo(not ns.demoData) end)
-    panel.demoButton:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 4, BUTTON_BOTTOM)
-    panel.lockButton = Button(page, Text.LOCK_BUTTON_LOCK, actionWidth, function() ns.SettingsWindow.SetLocked(true) end)
+    local window = ns.SettingsWindow
+    Heading(page, Text.UNLOCK_LOOK, y)
+    y = y + HEAD_HEIGHT
+    local sizes = {}
+    for i, size in ipairs(Core.TEXT_SIZES) do
+        sizes[i] = { size, string.format(Text.SETTINGS_PERCENT_VALUE, size) }
+    end
+    local width = 124
+    local function LookRow(key, label, choices, get)
+        window.Dropdown(page, INNER_WIDTH - width, -y, label, choices, get,
+            function(value) ns.SetSetting(key, value) end, width, nil, 0)
+        y = y + LOOK_ROW
+    end
+    LookRow("font", Text.SET_FONT, ns.Media.FontChoices, function() return db().font end)
+    LookRow("textSize", Text.SET_TEXT_SIZE, sizes, function() return Core.TextSizeOrDefault(db().textSize) end)
+    LookRow("barTexture", Text.SET_BAR_TEXTURE, ns.Media.BarChoices, function() return db().barTexture end)
+    y = y + SECTION_GAP
+    local reset = Button(page, Text.SET_RESET_POSITIONS, INNER_WIDTH, window.ConfirmPositions)
+    reset:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
+    panel.resetButton = reset
+    y = y + BUTTON_HEIGHT
+    page:SetSize(INNER_WIDTH, y)
+
+    local footerRule = panel:CreateTexture(nil, "ARTWORK")
+    footerRule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, PADDING + FOOTER_HEIGHT + FOOTER_GAP)
+    footerRule:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PADDING, PADDING + FOOTER_HEIGHT + FOOTER_GAP)
+    footerRule:SetSize(1, 1)
+    footerRule:SetColorTexture(1, 1, 1, 0.16)
+    panel.footerRule = footerRule
+
+    local actionWidth = math.floor((INNER_WIDTH - ACTION_GAP) / 2)
+    panel.demoButton = Button(panel, Text.SET_DEMO_START, actionWidth, function() ns.SetDemo(not ns.demoData) end)
+    panel.demoButton:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, PADDING)
+    panel.lockButton = Button(panel, Text.LOCK_BUTTON_LOCK, actionWidth, function() ns.SettingsWindow.SetLocked(true) end)
     panel.lockButton:SetPoint("LEFT", panel.demoButton, "RIGHT", ACTION_GAP, 0)
+
+    local footerBlock = FOOTER_GAP + 1 + FOOTER_GAP + FOOTER_HEIGHT
+    panel:SetSize(INNER_WIDTH + PADDING * 2, BODY_TOP + y + footerBlock + PADDING)
 
     if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, panel:GetName()) end
     panel:Hide()
     panel:SetScript("OnShow", function() Panel.Refresh() end)
     panel:SetScript("OnHide", Closed)
+    ns.Sounds.Window(panel)
     panel:RegisterEvent("PLAYER_REGEN_DISABLED")
     panel:RegisterEvent("PLAYER_REGEN_ENABLED")
     panel:SetScript("OnEvent", function() Panel.Refresh() end)
@@ -161,6 +244,7 @@ function Panel.Refresh()
     end
     panel.demoButton:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.SET_DEMO_START)
     panel.demoButton:SetEnabled(not InCombat())
+    panel.resetButton:SetEnabled(not InCombat())
     panel.lockButton:SetText(Text.LOCK_BUTTON_LOCK)
 end
 

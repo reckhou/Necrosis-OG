@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -52,6 +53,42 @@ end
 -- needle angle in radian, 0% at top and go clockwise
 function Core.ThreatNeedleAngle(percent)
     return math.rad(90 - Core.ThreatPercent(percent) / 100 * 359)
+end
+
+Core.THREAT_EASE = 6
+Core.THREAT_EASE_STOP = 0.2
+
+function Core.ThreatEase(current, goal, dt, speed)
+    goal = Core.ThreatPercent(goal)
+    if not isNumber(current) then return goal end
+    local gap = goal - current
+    if math.abs(gap) < Core.THREAT_EASE_STOP then return goal end
+    local rate = Core.THREAT_EASE * (isNumber(speed) and speed > 0 and speed or 1)
+    local nextPercent = current + gap * (1 - math.exp(-rate * math.max(0, isNumber(dt) and dt or 0)))
+    if math.abs(goal - nextPercent) < Core.THREAT_EASE_STOP then return goal end
+    return nextPercent
+end
+
+Core.THREAT_FLASH_SECONDS = 0.8
+Core.THREAT_FLASH_LOW = 0.25
+Core.THREAT_FLASH_TINT = 0.35
+
+local function FlashWave(elapsed)
+    local part = (math.max(0, isNumber(elapsed) and elapsed or 0) / Core.THREAT_FLASH_SECONDS) % 1
+    return part < 0.5 and part * 2 or (1 - part) * 2
+end
+
+function Core.ThreatFlashAlpha(elapsed)
+    return 1 - (1 - Core.THREAT_FLASH_LOW) * FlashWave(elapsed)
+end
+
+function Core.ThreatFlashTint(elapsed)
+    return Core.THREAT_FLASH_TINT * (1 - FlashWave(elapsed))
+end
+
+function Core.ThreatFlashColor(r, g, b, tint)
+    local t = isNumber(tint) and math.max(0, math.min(1, tint)) or 0
+    return r + (1 - r) * t, g + (1 - g) * t, b + (1 - b) * t
 end
 
 -- ring segment offset and rotation for sphere size

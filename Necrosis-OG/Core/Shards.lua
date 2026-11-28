@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -22,7 +23,7 @@ local _, ns = ...
 local Core = ns.Core
 local isNumber = Core.IsNumber
 
-Core.SHARD_LIMIT_MIN, Core.SHARD_LIMIT_MAX = 1, 32
+Core.SHARD_LIMIT_FALLBACK, Core.SHARD_LIMIT_MAX = 16, 32
 
 Core.SHARD_PULSE, Core.SHARD_PULSE_DIM = 2, 0.15
 
@@ -50,14 +51,17 @@ function Core.ShardAutoAllowed(inCombat, secondsSinceCombat, secondsSinceDelete)
     return (Core.ShardWaitLeft(secondsSinceCombat, secondsSinceDelete)) <= 0
 end
 
-function Core.ClampShardLimit(limit)
-    if not isNumber(limit) then return Core.DEFAULTS.buttons.shardLimit end
-    return math.max(Core.SHARD_LIMIT_MIN, math.min(Core.SHARD_LIMIT_MAX, math.floor(limit)))
+function Core.ShardLimit(limit, capacity)
+    local floor = math.min(capacity or 0, Core.SHARD_LIMIT_MAX)
+    if not isNumber(limit) or limit < 0 or limit == math.huge then
+        limit = floor > 0 and floor or Core.SHARD_LIMIT_FALLBACK
+    end
+    return math.max(floor, math.min(Core.SHARD_LIMIT_MAX, math.floor(limit))), floor, Core.SHARD_LIMIT_MAX
 end
 
 -- which shard to destory, the last ones over limit
 function Core.ShardsToDestroy(slots, total, limit)
-    local extra = math.min(#slots, math.max(0, (isNumber(total) and total or 0) - Core.ClampShardLimit(limit)))
+    local extra = math.min(#slots, math.max(0, (isNumber(total) and total or 0) - Core.ShardLimit(limit)))
     local chosen = {}
     for i = #slots - extra + 1, #slots do chosen[#chosen + 1] = slots[i] end
     return chosen

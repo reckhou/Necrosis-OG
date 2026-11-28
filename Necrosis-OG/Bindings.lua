@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -25,8 +26,8 @@ local Bindings = {}
 ns.Bindings = Bindings
 
 local entries = {
-    { key = "fear", spell = "fear" },
-    { key = "banish", spell = "banish" },
+    { key = "fear", spell = "fear", macro = true },
+    { key = "banish", spell = "banish", macro = true },
     { key = "sacrifice", spell = "sacrifice", macro = true },
     { key = "seduction", spell = "seduction", macro = true },
     { key = "enslaveDemon", spell = "enslaveDemon", macro = true },
@@ -90,10 +91,16 @@ Buttons.OnCreate(function()
     Buttons.SetTradeAction(buttons.healthstone)
     handlers.healthstone = function(button, mouse) Buttons.PrepareTrade(button, mouse, true) end
     handlers.soulstone = function(button)
-        if not InCombat() then button:SetAttribute("macrotext1", StoneMacro("soulstone")) end
+        if not InCombat() then
+            button:SetAttribute("macrotext1", StoneMacro("soulstone"))
+            if ns.SoulstoneShortcut and ns.SoulstoneShortcut.HoldFarUse(button, "target", "macrotext1") then return end
+        end
         local held = Stones.State()
         if held.soulstone and ns.Speech then ns.Speech.Speak("soulstone", "friend") end
     end
+    buttons.soulstone:SetScript("PostClick", function(self)
+        if ns.SoulstoneShortcut then ns.SoulstoneShortcut.ReleaseFarUse(self) end
+    end)
     handlers.hearthstone = function()
         local subject = ns.Mount.HearthSpeechSubject()
         if subject and ns.Speech then ns.Speech.Speak(subject) end
@@ -120,7 +127,7 @@ Buttons.OnRefresh(function()
             actions = { type1 = "macro", spell1 = false, macrotext1 = StoneMacro(key) }
         elseif entry.macro then
             local body = Buttons.MacroBody(key)
-            actions = body and { type1 = "macro", spell1 = false, macrotext1 = body } or Buttons.CastActions(key, nil)
+            actions = body and { type1 = "macro", spell1 = false, macrotext1 = body } or Buttons.CastActions(nil)
         elseif key == "hearthstone" then
             actions = { type1 = "item", item1 = "item:" .. Core.HEARTHSTONE_ITEM }
         elseif key == "mount" then
@@ -133,7 +140,7 @@ Buttons.OnRefresh(function()
                 if Core.IsBaneKey(saved) then spellKey = saved end
             end
             local id = spellKey and Core.HighestKnown(Core.SPELLS[spellKey], Buttons.IsKnown)
-            actions = Buttons.CastActions(spellKey, id)
+            actions = Buttons.CastActions(id)
         end
         Buttons.SetActions(button, actions)
     end

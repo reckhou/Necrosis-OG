@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -30,38 +31,54 @@ local PRESET_GAP = 7
 local BUTTON_HEIGHT = 22
 local BUTTON_GAP = 4
 local BUTTON_BOTTOM = 14
-local LINK_HEIGHT = 14
 
-local PICTURE = 36
-local FOCUS_SIZE = 24
+local ICON = 32
+local PICTURE = ICON
+local FOCUS_SIZE = ICON
+local BUTTON_ROW_GAP = 4
 local TEXT_LEFT = PICTURE + 12
 local SAMPLE_SHARDS = 16
 local SAMPLE_ENEMY = 1
 local SAMPLE_GAP = 4
-local BUTTON_PICTURES = { "SoulstoneButton-02", "HealthstoneButton-02", "PetMenuButton-01", "CurseMenuButton-01" }
-local GOLD = "|cffffd100%s|r %s"
-local WARNING_COLOUR = { 1, 0.48, 0.35 }
-local PLATES = "nameplateShowEnemies"
+
+local BUTTON_ROW = {
+    { slot = "soulstone", fallback = "SoulstoneButton-01" },
+    { slot = "healthstone", fallback = "HealthstoneButton-01" },
+    { slot = "demons", fallback = "PetMenuButton-01" },
+    { slot = "curses", fallback = "CurseMenuButton-01" },
+}
+
+local function Lead(lead, rest, perCode)
+    return Core.Gradient(lead, Core.GRADIENT_HEADING, nil, perCode) .. " |cffffffff" .. rest .. "|r"
+end
+
+local function Gold(text)
+    return "|cffffd100" .. text .. "|cffffffff"
+end
+
 local PRESET_DESC = {
     full = "WELCOME_PRESET_FULL",
     lite = "WELCOME_PRESET_LITE",
     minimal = "WELCOME_PRESET_MINIMAL",
 }
 
+local VIEWS = {
+    minimal = { "sphere", "buttons" },
+    lite = { "litePlus", "reminder", "alert", "highlight" },
+    full = { "fullPlus", "multi", "focus", "missing" },
+}
+
+local LITE_SPELLS = {
+    reminder = Core.SPELLS.soulLink[1],
+    alert = Core.PROC_BUFFS.shadowTrance[1],
+    highlight = Core.SPELLS.corruption[1],
+}
+
 local card
 local welcomePending = false
+local returnToSettings = false
 
 local function db() return ns.db end
-
--- true when enemy nameplate setting is off
-local function PlatesOff()
-    return C_CVar and Plain(C_CVar.GetCVar, PLATES) == "0"
-end
-
-local function SwitchOnPlates()
-    if InCombat() or not (C_CVar and C_CVar.SetCVar) then return end
-    pcall(C_CVar.SetCVar, PLATES, "1")
-end
 
 local function Line(page, font, width)
     local line = page:CreateFontString(nil, "ARTWORK", font or "GameFontHighlightSmall")
@@ -70,27 +87,32 @@ local function Line(page, font, width)
     return line
 end
 
--- shard picture of current skin with the count
-local function SpherePicture(page)
+local function Picture(page)
     local holder = CreateFrame("Frame", nil, page)
     holder:SetSize(PICTURE, PICTURE)
     holder.texture = holder:CreateTexture(nil, "ARTWORK")
     holder.texture:SetAllPoints()
+    return holder
+end
+
+-- shard picture of current skin with the count
+local function SpherePicture(page)
+    local holder = Picture(page)
     holder.count = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     holder.count:SetPoint("CENTER")
     holder.count:SetText(tostring(SAMPLE_SHARDS))
     return holder
 end
 
-local function ButtonsPicture(page)
+local function ButtonsRow(page)
     local holder = CreateFrame("Frame", nil, page)
-    holder:SetSize(PICTURE, PICTURE)
-    local size = (PICTURE - 4) / 2
-    for i, name in ipairs(BUTTON_PICTURES) do
+    holder:SetSize(#BUTTON_ROW * ICON + (#BUTTON_ROW - 1) * BUTTON_ROW_GAP, ICON)
+    holder.icons = {}
+    for i = 1, #BUTTON_ROW do
         local texture = holder:CreateTexture(nil, "ARTWORK")
-        texture:SetSize(size, size)
-        texture:SetPoint("TOPLEFT", holder, "TOPLEFT", ((i - 1) % 2) * (size + 4), -math.floor((i - 1) / 2) * (size + 4))
-        texture:SetTexture(Core.UiTexture(name))
+        texture:SetSize(ICON, ICON)
+        texture:SetPoint("TOPLEFT", holder, "TOPLEFT", (i - 1) * (ICON + BUTTON_ROW_GAP), 0)
+        holder.icons[i] = texture
     end
     return holder
 end
@@ -104,30 +126,29 @@ local function Button(page, text, width, onClick)
         onClick()
         Welcome.Refresh()
     end)
+    ns.Sounds.Button(button)
     return button
-end
-
-local function Link(page, text, onClick)
-    local link = CreateFrame("Button", nil, page)
-    link:SetSize(80, LINK_HEIGHT)
-    link.label = link:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    link.label:SetAllPoints()
-    link.label:SetJustifyH("LEFT")
-    link.label:SetText(text)
-    link:SetScript("OnEnter", function(self) self.label:SetTextColor(1, 1, 1) end)
-    link:SetScript("OnLeave", function(self) self.label:SetTextColor(1, 0.82, 0) end)
-    link:SetScript("OnClick", function()
-        onClick()
-        Welcome.Refresh()
-    end)
-    return link
 end
 
 -- stop the demo and print how to open again
 local function Closed()
     if UIParent and UIParent.IsShown and not UIParent:IsShown() then return end
     if ns.demoData then ns.SetDemo(false) end
+    if db() and not db().locked then ns.SettingsWindow.SetLocked(true) end
     ns.Print(Text.WELCOME_AGAIN)
+    if returnToSettings then
+        returnToSettings = false
+        ns.SettingsWindow.Open()
+    end
+end
+
+local function LockOrUnlock()
+    if db().locked then
+        ns.SettingsWindow.SetLocked(false)
+    else
+        ns.SettingsWindow.SetLocked(true)
+        if ns.demoData then ns.SetDemo(false) end
+    end
 end
 
 local function ApplyPreset(presetKey)
@@ -139,13 +160,19 @@ local function ApplyPreset(presetKey)
     if ns.SettingsWindow and ns.SettingsWindow.Refresh then ns.SettingsWindow.Refresh() end
 end
 
+local function PlaceCard()
+    local saved = (ns.db and ns.db.settingsWindow) or Core.DEFAULTS.settingsWindow
+    card:ClearAllPoints()
+    card:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y)
+end
+
 local function Create()
     card = CreateFrame("Frame", "NecrosisOGWelcomeFrame", UIParent)
     local _, heading = ns.SettingsWindow.ClassicFrame(card, Text.SETTINGS_TITLE)
     heading:SetText(Text.WELCOME_HEADING)
     card.heading = heading
     card:SetScript("OnDragStop", card.StopMovingOrSizing)
-    card:SetPoint("TOP", UIParent, "TOP", 380, -60)
+    PlaceCard()
 
     local page = ns.SettingsWindow.NewPage(card)
     card.page = page
@@ -161,79 +188,114 @@ local function Create()
     card.presetDesc = Line(page)
     card.presetDesc:SetTextColor(0.85, 0.85, 0.85)
     local textWidth = ns.SettingsWindow.PAGE_WIDTH - TEXT_LEFT
+
     card.spherePicture = SpherePicture(page)
     card.sphere = Line(page, nil, textWidth)
-    card.sphere:SetText(GOLD:format(Text.WELCOME_SPHERE_LEAD, Text.WELCOME_SPHERE))
-    card.buttonsPicture = ButtonsPicture(page)
-    card.buttons = Line(page, nil, textWidth)
-    card.buttons:SetText(GOLD:format(Text.WELCOME_BUTTONS_LEAD, Text.WELCOME_BUTTONS))
+    card.sphere:SetText(Lead(Text.WELCOME_SPHERE_LEAD, Text.WELCOME_SPHERE))
+    card.buttonsRow = ButtonsRow(page)
+    card.buttons = Line(page)
+    card.buttons:SetText(Lead(Text.WELCOME_BUTTONS_LEAD, Text.WELCOME_BUTTONS))
+
+    card.litePlus = Line(page)
+    card.litePlus:SetText(Text.WELCOME_INCLUDES_MINIMAL)
+    card.reminderPicture = Picture(page)
+    card.reminder = Line(page, nil, textWidth)
+    card.reminder:SetText(Lead(Text.SET_REMINDER_BAR, Text.WELCOME_REMINDER))
+    card.alertPicture = Picture(page)
+    card.alert = Line(page, nil, textWidth)
+    local alertRest = string.format(Text.WELCOME_ALERT,
+        Gold(ns.Game.SpellName(Core.PROC_BUFFS.shadowTrance[1]) or ""), Gold(Text.WELCOME_IMMUNE))
+    card.alert:SetText(Lead(Text.SET_PROC_BAR, alertRest, 3))
+    card.highlightPicture = Picture(page)
+    card.highlight = Line(page, nil, textWidth)
+    card.highlight:SetText(Lead(Text.SET_ACTION_BAR_GLOWS, Text.WELCOME_HIGHLIGHT))
+
+    card.fullPlus = Line(page)
+    card.fullPlus:SetText(Text.WELCOME_INCLUDES_LITE)
     card.multi = Line(page)
-    card.multi:SetText(GOLD:format(Text.SET_MULTI_ON, Text.WELCOME_MULTI))
+    card.multi:SetText(Lead(Text.SET_DEBUFF_TRACKER, Text.WELCOME_MULTI))
     card.sample = ns.Debuffs and ns.Debuffs.Sample and ns.Debuffs.Sample(page, SAMPLE_ENEMY) or nil
     card.focus = Line(page)
-    card.focus:SetText(GOLD:format(Text.TIMER_LIST_FOCUS, Text.WELCOME_FOCUS))
+    card.focus:SetText(Lead(Text.TIMER_LIST_FOCUS, Text.WELCOME_FOCUS))
     card.focusSample = ns.Debuffs and ns.Debuffs.FocusSample and ns.Debuffs.FocusSample(page, FOCUS_SIZE) or nil
-    card.under = {}
-    if card.sample then card.under[card.multi] = { card.sample, Core.MULTI_BLOCK } end
-    if card.focusSample then card.under[card.focus] = { card.focusSample, FOCUS_SIZE } end
-    card.warning = Line(page)
-    card.warning:SetText(Text.WELCOME_PLATES_OFF:format(Text.SET_MULTI_ON))
-    card.warning:SetTextColor(WARNING_COLOUR[1], WARNING_COLOUR[2], WARNING_COLOUR[3])
-    card.switchOn = Link(page, Text.WELCOME_PLATES_SWITCH, SwitchOnPlates)
+    card.missing = Line(page)
+    card.missing:SetText(Lead(Text.SET_MISSING_TARGET, Text.WELCOME_MISSING))
+
+    card.blocks = {
+        sphere = { line = card.sphere, picture = card.spherePicture },
+        buttons = { line = card.buttons, under = card.buttonsRow, underHeight = PICTURE },
+        litePlus = { line = card.litePlus },
+        reminder = { line = card.reminder, picture = card.reminderPicture },
+        alert = { line = card.alert, picture = card.alertPicture },
+        highlight = { line = card.highlight, picture = card.highlightPicture },
+        fullPlus = { line = card.fullPlus },
+        multi = { line = card.multi, under = card.sample, underHeight = Core.MULTI_BLOCK },
+        focus = { line = card.focus, under = card.focusSample, underHeight = FOCUS_SIZE },
+        missing = { line = card.missing },
+    }
+
     card.note = Line(page)
     card.note:SetText(Text.WELCOME_NOTE)
     card.note:SetTextColor(0.6, 0.6, 0.6)
 
     card.demoButton = Button(page, Text.SET_DEMO_START, 104, function() ns.SetDemo(not ns.demoData) end)
     card.demoButton:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 4, BUTTON_BOTTOM)
-    card.lockButton = Button(page, Text.LOCK_BUTTON_LOCK, 64, function() ns.SettingsWindow.SetLocked(not db().locked) end)
+    card.lockButton = Button(page, Text.LOCK_BUTTON_LOCK, 64, LockOrUnlock)
     card.lockButton:SetPoint("LEFT", card.demoButton, "RIGHT", BUTTON_GAP, 0)
-    card.settingsButton = Button(page, Text.SET_OPEN, 106, function() ns.SettingsWindow.Open() end)
+    card.settingsButton = Button(page, Text.SET_OPEN, 106, function()
+        returnToSettings = false
+        card:Hide()
+        ns.SettingsWindow.Open()
+    end)
     card.settingsButton:SetPoint("LEFT", card.lockButton, "RIGHT", BUTTON_GAP, 0)
 
     if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, card:GetName()) end
     card:Hide()
     card:SetScript("OnShow", function() Welcome.Refresh() end)
     card:SetScript("OnHide", Closed)
+    ns.Sounds.Window(card)
     card:RegisterEvent("PLAYER_REGEN_DISABLED")
     card:RegisterEvent("PLAYER_REGEN_ENABLED")
     card:SetScript("OnEvent", function() Welcome.Refresh() end)
 end
 
--- put lines from top to down, warning only show when nameplates off
-local function Layout()
+-- only show blocks of chosen preset, from top to down
+local function Layout(active)
     local page = card.page
+    local view = VIEWS[active] or VIEWS.minimal
+    local showing = {}
+    for _, key in ipairs(view) do showing[key] = true end
+    for key, block in pairs(card.blocks) do
+        local show = showing[key] == true
+        block.line:SetShown(show)
+        if block.picture then block.picture:SetShown(show) end
+        if block.under then block.under:SetShown(show) end
+    end
+
     local y = BUTTON_HEIGHT + 4
     card.presetDesc:ClearAllPoints()
     card.presetDesc:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
     y = y + card.presetDesc:GetStringHeight() + LINE_GAP
-    for _, row in ipairs({ { card.spherePicture, card.sphere }, { card.buttonsPicture, card.buttons } }) do
-        row[1]:ClearAllPoints()
-        row[1]:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
-        row[2]:ClearAllPoints()
-        row[2]:SetPoint("LEFT", page, "TOPLEFT", TEXT_LEFT, -(y + PICTURE / 2))
-        y = y + math.max(PICTURE, row[2]:GetStringHeight()) + LINE_GAP
-    end
-    local shown = { card.multi, card.focus }
-    local platesOff = PlatesOff()
-    card.warning:SetShown(platesOff)
-    card.switchOn:SetShown(platesOff)
-    if platesOff then shown[#shown + 1] = card.warning end
-    for _, line in ipairs(shown) do
+    for _, key in ipairs(view) do
+        local block = card.blocks[key]
+        local line = block.line
         line:ClearAllPoints()
-        line:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
-        y = y + line:GetStringHeight() + LINE_GAP
-        local under = card.under[line]
-        if under then
-            under[1]:ClearAllPoints()
-            under[1]:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -(y - LINE_GAP + SAMPLE_GAP))
-            y = y - LINE_GAP + SAMPLE_GAP + under[2] + LINE_GAP
-        elseif line == card.warning then
-            card.switchOn:ClearAllPoints()
-            card.switchOn:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -(y - LINE_GAP + 2))
-            y = y + LINK_HEIGHT
+        if block.picture then
+            block.picture:ClearAllPoints()
+            block.picture:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
+            line:SetPoint("LEFT", page, "TOPLEFT", TEXT_LEFT, -(y + PICTURE / 2))
+            y = y + math.max(PICTURE, line:GetStringHeight()) + LINE_GAP
+        else
+            line:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -y)
+            y = y + line:GetStringHeight() + LINE_GAP
+            if block.under then
+                block.under:ClearAllPoints()
+                block.under:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -(y - LINE_GAP + SAMPLE_GAP))
+                y = y - LINE_GAP + SAMPLE_GAP + block.underHeight + LINE_GAP
+            end
         end
     end
+
     local room = ns.SettingsWindow.PAGE_HEIGHT - BUTTON_BOTTOM - BUTTON_HEIGHT - LINE_GAP
     local fits = y + card.note:GetStringHeight() <= room
     card.note:ClearAllPoints()
@@ -255,23 +317,38 @@ function Welcome.Refresh()
     end
     card.presetDesc:SetText(Text[PRESET_DESC[active] or "WELCOME_PRESET_CUSTOM"])
     card.spherePicture.texture:SetTexture(Core.ShardTexture(saved.skin, SAMPLE_SHARDS))
+    for part, spell in pairs(LITE_SPELLS) do
+        local picture = card.blocks[part].picture
+        picture.texture:SetTexture(Plain(C_Spell.GetSpellTexture, spell))
+    end
+    for i, item in ipairs(BUTTON_ROW) do
+        local texture = card.buttonsRow.icons[i]
+        local kind, value = nil, nil
+        if ns.Buttons and ns.Buttons.SlotIcon then kind, value = ns.Buttons.SlotIcon(item.slot) end
+        if kind == "atlas" then
+            texture:SetAtlas(value)
+        elseif kind == "texture" then
+            texture:SetTexture(value)
+        else
+            texture:SetTexture(Core.UiTexture(item.fallback))
+        end
+    end
     card.lockButton:SetText(locked and Text.LOCK_BUTTON_UNLOCK or Text.LOCK_BUTTON_LOCK)
     card.demoButton:SetText(ns.demoData and Text.SET_DEMO_STOP or Text.SET_DEMO_START)
-    local fighting = InCombat()
-    card.demoButton:SetEnabled(not fighting)
-    card.switchOn:SetEnabled(not fighting)
-    if fighting then card.switchOn.label:SetTextColor(0.5, 0.5, 0.5) else card.switchOn.label:SetTextColor(1, 0.82, 0) end
-    Layout()
+    card.demoButton:SetEnabled(not InCombat())
+    Layout(active)
 end
 
 function Welcome.IsActive()
     return welcomePending or (card ~= nil and card:IsShown() == true)
 end
 
-function Welcome.Show()
+function Welcome.Show(fromSettings)
     welcomePending = false
+    returnToSettings = fromSettings == true
     if not card then Create() end
     if ns.UnlockPanel and ns.UnlockPanel.HideForWelcome then ns.UnlockPanel.HideForWelcome() end
+    PlaceCard()
     card:Show()
 end
 

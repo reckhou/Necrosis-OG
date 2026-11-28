@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: |cffff00ffN|cffff28ffe|cffff50ffc|cffff75ffr|cffff99ffo|cffffafffs|cffffc4ffi|cffffe2ffs |cffffffffO|cffffe2ffG|r
+## Title: |cffff00ffN|cffff28ffe|cffff50ffc|cffff75ffr|cffff99ffo|cffffafffs|cffffc4ffi|cffffd3ffs |cffffe2ffO|cffffd3ffG|r
 ## Notes: One classic sphere. The essential Warlock tool.
 ## Notes-deDE: Eine klassische Kugel. Das unverzichtbare Hexenmeister-Werkzeug.
 ## Notes-esES: Una esfera clásica. La herramienta esencial del brujo.
@@ -12,7 +12,7 @@
 ## Notes-zhCN: 一个经典球体。术士的必备工具。
 ## Category: Class
 ## IconTexture: Interface\AddOns\Necrosis-OG\Media\UI\AddonIcon
-## Version: 1.7.0
+## Version: 2.0.0
 ## X-License: GPL-2.0-or-later
 ## X-Website: https://github.com/reckhou/Necrosis-OG
 ## SavedVariablesPerCharacter: NecrosisOGDB
@@ -23,9 +23,10 @@
 
 # Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 # Copyright (C) 2026 reckhou
-# A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+# A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 # Original sphere skins by Eliah. Includes high-resolution artwork from
-# Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+# Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+# update in 7.2.
 #
 # This program is free software. You can redistribute it and modify it
 # under the terms of the GNU General Public License as published by the
@@ -61,16 +62,24 @@ Core\Bars.lua
 Core\Speech.lua
 Core\Demo.lua
 Core\Gradient.lua
+Core\Orbs.lua
+Core\Soulstone.lua
+Core\Summon.lua
 Game.lua
 Tips.lua
+Sounds.lua
+Dialog.lua
 Necrosis-OG.lua
 Media.lua
 Demo.lua
 Rings.lua
 Durations.lua
+RangeCover.lua
 Sphere.lua
+Orbs.lua
 Stones.lua
 Buttons.lua
+SoulstoneShortcut.lua
 Bars.lua
 Menus.lua
 Shards.lua
@@ -83,10 +92,12 @@ SacrificeGlow.lua
 Alerts.lua
 ProcAlerts.lua
 Mount.lua
+AutoHide.lua
 Bindings.lua
 BindingKeys.lua
 Controls.lua
 Speech.lua
+SummonQueue.lua
 Settings.lua
 Welcome.lua
 UnlockPanel.lua

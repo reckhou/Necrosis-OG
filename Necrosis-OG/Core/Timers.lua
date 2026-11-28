@@ -1,8 +1,9 @@
 -- Necrosis OG: a Warlock add-on for World of Warcraft: Forever.
 -- Copyright (C) 2026 reckhou
--- A remake of Necrosis LdC 1.5.2a (Infernal, Lomig and Nyx).
+-- A remake of Necrosis LdC (Infernal, Lomig and Nyx).
 -- Original sphere skins by Eliah. Includes high-resolution artwork from
--- Necrosis Classic 7.5, with the 128 x 128 artwork update credited to urnati.
+-- Necrosis Classic, with thanks to kricklen, and to urnati for the artwork
+-- update in 7.2.
 --
 -- This program is free software. You can redistribute it and modify it
 -- under the terms of the GNU General Public License as published by the
@@ -22,9 +23,9 @@ local _, ns = ...
 local Core = ns.Core
 local isNumber = Core.IsNumber
 
-Core.TIMER_GAP = 6 -- px between row
-Core.TIMER_WARN_BEFORE = 3 -- sec before control end, play warn sound
-Core.TIMER_RESIST_WINDOW = 1.5 -- sec after cast that resist text remove timer
+Core.TIMER_GAP = 6  -- px between row
+Core.TIMER_WARN_BEFORE = 3  -- sec before control end, play warn sound
+Core.TIMER_RESIST_WINDOW = 1.5  -- sec after cast that resist text remove timer
 
 Core.TIMER_LISTS = { "focus", "multi" }
 
@@ -35,14 +36,15 @@ Core.MISSING_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.target
 
 Core.BAR_HIGHLIGHT_SETTINGS = { "timers.trackOff", "timers.trackOrder", "timers.barHighlight", "timers.wrackHelper" }
 
-Core.SACRIFICE_SETTINGS = { "alerts.sacrificeOn", "alerts.sacrificeAt", "procBar.on" }
+Core.SACRIFICE_SETTINGS = { "alerts.sacrificeOn", "alerts.sacrificeAt", "alerts.healthFunnelOn",
+    "alerts.healthFunnelAt", "alerts.glows.on" }
 Core.SACRIFICE_THRESHOLDS = { 10, 20, 30, 40, 50 }
 
-function Core.SacrificeThresholdOrDefault(value)
+function Core.SacrificeThresholdOrDefault(value, fallback)
     for _, each in ipairs(Core.SACRIFICE_THRESHOLDS) do
         if value == each then return value end
     end
-    return Core.DEFAULTS.alerts.sacrificeAt
+    return fallback or Core.DEFAULTS.alerts.sacrificeAt
 end
 
 function Core.SacrificeCurvePoints(percent)
@@ -93,7 +95,7 @@ Core.MULTI_THREAT_WIDTH = 42
 Core.MULTI_THREAT_ICON = 14
 
 Core.THREAT_ICON = "Interface\\Icons\\Spell_Nature_Reincarnation"
-Core.MULTI_ICON = 28 -- debuff icon size
+Core.MULTI_ICON = 28  -- debuff icon size
 Core.ENEMY_TIME_SIZE = 14
 Core.MULTI_ICON_GAP = 3
 Core.MULTI_ROW_GAP = 2
